@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ d.title }}{% endblock %}
+{% block description %}{{ d.summary }}{% endblock %}
+{% block head %}{% if d.status != "published" %}<meta name="robots" content="noindex">{% endif %}
+<script type="application/ld+json">{{ {"@context": "https://schema.org", "@type": "Dataset", "name": d.title, "description": d.summary,
+  "url": base ~ "/d/" ~ d.slug, "license": "https://opendatacommons.org/licenses/odbl/",
+  "distribution": [{"@type": "DataDownload", "encodingFormat": "text/csv", "contentUrl": base ~ "/d/" ~ d.slug ~ ".csv"},
+                   {"@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": base ~ "/d/" ~ d.slug ~ ".json"}]} | tojson }}</script>
+{% endblock %}
+{% block main %}
+<section class="ds-head">
+  <div class="wrap">
+    <p class="crumbs"><a href="/">Data pages</a></p>
+    <h1>{{ d.title }}</h1>
+    <p class="lede">{{ d.summary }}</p>
+    <dl class="stats">
+      <div><dt>Businesses</dt><dd>{{ total }}</dd></div>
+      <div><dt>Publish a phone</dt><dd>{{ counts.phone }}</dd></div>
+      <div><dt>WhatsApp</dt><dd>{{ counts.whatsapp }}</dd></div>
+      <div><dt>Telegram</dt><dd>{{ counts.telegram }}</dd></div>
+      <div><dt>Last built</dt><dd>{{ fmt_date(d.built_at) or "—" }}</dd></div>
+    </dl>
+  </div>
+</section>
+{% if d.status == "discovered" %}
+<div class="wrap"><div class="notice plain"><strong>Collected automatically from a search.</strong> Every detail links to its source, but no one has reviewed this page yet. Check details with the business before you rely on them.</div></div>
+{% elif d.status != "published" %}
+<div class="wrap"><div class="notice warn"><strong>Preview: this page isn't public yet</strong> ({{ STATUS_LABEL[d.status] }}). Only you{% if user and user.role == "admin" %} and other admins{% endif %} can see it. <a href="/app/pages/{{ d.slug }}">Open it in your workspace</a>.</div></div>
+{% elif manage %}
+<div class="wrap"><div class="notice plain">You manage this page. <a href="/app/pages/{{ d.slug }}">Open it in your workspace</a> to rebuild it or review corrections.</div></div>
+{% endif %}
+{% if demo %}
+<div class="wrap"><div class="notice warn"><strong>This page shows sample data.</strong> The businesses below are fictional and use “.example” addresses so you can see the design. Run a build to replace them with real, sourced listings.</div></div>
+{% endif %}
+<section class="wrap ds-body">
+  <aside class="filters">
+    <form method="get" id="filters">
+      <label for="f-q">Name or product</label>
+      <input id="f-q" name="q" type="search" value="{{ f.q }}" placeholder="e.g. preforms">
+      <label for="f-product">Product</label>
+      <select id="f-product" name="product"><option value="">All products</option>{% for p in products %}<option {% if p == f.product %}selected{% endif %}>{{ p }}</option>{% endfor %}</select>
+      <label for="f-city">Town or city</label>
+      <select id="f-city" name="city"><option value="">Everywhere</option>{% for c in cities %}<option {% if c == f.city %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+      <label for="f-lacks">Needs or doesn’t have</label>
+      <select id="f-lacks" name="lacks"><option value="">Anything</option>{% for cat, items in GAP_GROUPS %}{% set present = items|selectattr("0", "in", gap_counts_nonzero)|list %}{% if present %}<optgroup label="{{ cat }}">{% for code, v in present %}<option value="{{ code }}" {% if code == f.lacks %}selected{% endif %}>{{ v[0] }} ({{ gap_counts[code] }})</option>{% endfor %}</optgroup>{% endif %}{% endfor %}</select>
+      <label for="f-channel">Publishes</label>
+      <select id="f-channel" name="channel"><option value="">Any contact</option>{% for ch in ["phone", "email", "whatsapp", "telegram"] %}<option value="{{ ch }}" {% if ch == f.channel %}selected{% endif %}>{{ CONTACT_LABEL[ch] }}</option>{% endfor %}</select>
+      <button class="btn primary">Apply filters</button>
+      {% if query %}<a class="btn ghost" href="/d/{{ d.slug }}">Clear</a>{% endif %}
+    </form>
+    <div class="export">
+      <h2>Download</h2>
+      <p class="muted">{% if query %}Downloads include only the {{ rows|length }} filtered businesses.{% else %}All {{ total }} businesses, with sources.{% endif %}</p>
+      <a class="btn" href="/d/{{ d.slug }}.csv{% if query %}?{{ query }}{% endif %}" download>CSV</a>
+      <a class="btn" href="/d/{{ d.slug }}.json{% if query %}?{{ query }}{% endif %}" download>JSON</a>
+      <p class="fine">Includes OpenStreetMap data (ODbL): keep the attribution and share-alike notice included in each file.</p>
+    </div>
+  </aside>
+  <div class="results">
+    <p class="count">{% if query %}{{ rows|length }} of {{ total }} businesses{% else %}{{ total }} businesses{% endif %}</p>
+    {% if rows %}
+    <table class="table">
+      <thead><tr><th scope="col">Business</th><th scope="col">Supplies</th><th scope="col">Contacts published</th><th scope="col">Needs or doesn’t have</th><th scope="col">Checked</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><a class="name" href="/d/{{ d.slug }}/{{ r.slug }}">{{ r.name }}</a><span class="sub">{{ r.city or "Town not listed" }}</span></td>
+        <td><div class="chips">{% for p in r.products[:4] %}<span class="chip">{{ p }}</span>{% endfor %}{% if r.products|length > 4 %}<span class="chip more">+{{ r.products|length - 4 }}</span>{% endif %}</div></td>
+        <td class="channels">{% for ch in ["phone", "email", "whatsapp", "telegram"] %}{% if r.contacts.get(ch) %}<span class="ch ch-{{ ch }}">{{ CONTACT_LABEL[ch] }}</span>{% endif %}{% endfor %}</td>
+        <td class="gaps-cell">{% for g in r.gaps[:3] %}<span class="gap{{ ' need' if g.category == 'Stated needs' }}">{{ g.label }}</span>{% endfor %}{% if r.gaps|length > 3 %}<span class="gap more">+{{ r.gaps|length - 3 }}</span>{% endif %}</td>
+        <td class="sub">{{ fmt_date(r.checked_at) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty"><h3>No businesses match these filters</h3><p><a href="/d/{{ d.slug }}">Clear the filters</a> to see all {{ total }}.</p></div>
+    {% endif %}
+    <details class="method">
+      <summary>How this page was made</summary>
+      <p>Businesses come from Wikidata, the GLEIF register of legal entities, web search results confirmed on the business's own website, and OpenStreetMap places in {{ definition.country_name or d.country }} whose map tags or names match this page's keywords ({{ (definition.keywords or definition.relevance_keywords or [])|join(", ") }}), plus a list of business websites added by the page's editor. Each business's own website is read (home, contact and about pages only, following robots.txt) for the products and contacts it publishes. Businesses with no sign of the page's products or keywords are left out.</p>
+      <p>Descriptions are written only from those facts. Nothing here is an endorsement; check details with the business before you buy.</p>
+    </details>
+  </div>
+</section>
+{% endblock %}

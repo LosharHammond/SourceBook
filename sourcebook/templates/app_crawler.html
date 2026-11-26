@@ -1,0 +1,90 @@
+{% extends "app_base.html" %}
+{% block title %}Crawler{% endblock %}
+{% block main %}
+<header class="app-head">
+  <div><h1>Crawler</h1>
+  <p class="muted">{% if interval > 0 %}Every {{ (interval / 60)|round|int }} minutes the crawler collects the topics that are due, until today’s target of new businesses is reached.{% else %}The schedule is off on this server (SOURCEBOOK_CRAWL_INTERVAL is 0). You can still run rounds by hand.{% endif %} Searches on the public site also start collection straight away.</p></div>
+  <form method="post" action="/app/admin/crawler/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn primary">Run a round now</button></form>
+</header>
+<section class="tiles">
+  <div class="tile"><span class="tile-n">{{ "{:,}".format(today) }}</span><span>new businesses today (target {{ "{:,}".format(settings.daily_target) }})</span></div>
+  <div class="tile"><span class="tile-n">{{ "{:,}".format(total) }}</span><span>businesses in total</span></div>
+  <div class="tile"><span class="tile-n">{{ coverage.countries }}</span><span>of {{ coverage.countries_total }} countries reached</span></div>
+  <div class="tile {{ 'accent' if not settings.enabled }}"><span class="tile-n">{{ "On" if settings.enabled else "Paused" }}</span><span>{% if last_tick %}last round {{ fmt_time(last_tick) }}{% else %}no round yet{% endif %}</span></div>
+</section>
+<div class="two-col wide-left">
+  <section class="panel">
+    <div class="panel-head"><h2>New businesses per day</h2><span class="muted">last 14 days</span></div>
+    <div class="bars" role="img" aria-label="New businesses per day for the last 14 days">
+      <span class="target-line" style="bottom:{{ (settings.daily_target / peak * 100)|round(1) }}%"><span>target</span></span>
+      {% for day, n in series %}
+      <div class="bar" title="{{ day }}: {{ n }}"><span class="v" style="height:{{ (n / peak * 100)|round(1) }}%"></span><span class="d">{{ day[8:] }}</span></div>
+      {% endfor %}
+    </div>
+  </section>
+  <form method="post" action="/app/admin/crawler/settings" class="panel form"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <h2>Settings</h2>
+    <label class="check"><input type="checkbox" name="enabled" value="1" {% if settings.enabled %}checked{% endif %}> Crawl on a schedule</label>
+    <label class="check"><input type="checkbox" name="world" value="1" {% if settings.world %}checked{% endif %}> Cover every country</label>
+    <p class="hint">Rotates {{ world_types }} everyday business types (pharmacies, hardware stores, factories, logistics firms and more) through all {{ coverage.countries_total }} countries, using map tags so names in any language are found. So far: {{ coverage.countries }} of {{ coverage.countries_total }} countries, {{ "{:,}".format(coverage.pairs) }} of {{ "{:,}".format(coverage.pairs_total) }} type-and-country pairs.</p>
+    <label for="c-target">New businesses to aim for each day</label>
+    <input id="c-target" name="daily_target" type="number" min="10" max="20000" value="{{ settings.daily_target }}">
+    <label for="c-per">Topics to collect each round</label>
+    <input id="c-per" name="per_run" type="number" min="1" max="20" value="{{ settings.per_run }}">
+    <p class="hint">Web search: {% if web_search %}on (Brave Search API key set){% else %}off. Set <code>BRAVE_API_KEY</code> to also find businesses through web search.{% endif %}</p>
+    <div><button class="btn primary">Save settings</button></div>
+  </form>
+</div>
+<section class="panel">
+  <div class="panel-head"><h2>Topics</h2>
+    {% if not targets %}<form method="post" action="/app/admin/crawler/starter"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small">Add {{ 40 }} starter topics</button></form>{% endif %}
+  </div>
+  <form method="post" action="/app/admin/crawler/add" class="topic-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div><label for="t-what">Kind of business</label><input id="t-what" name="what" required maxlength="80" placeholder="Cashew processors"></div>
+    <div><label for="t-country">Country</label><select id="t-country" name="country">{% for code, name in COUNTRIES %}<option value="{{ code }}" {% if code == "GH" %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+    <div><label for="t-kw">Keywords <span class="opt">optional</span></label><input id="t-kw" name="keywords" placeholder="cashew, anacarde"></div>
+    <div class="narrow"><label for="t-every">Every</label><select id="t-every" name="every_days"><option value="7">week</option><option value="14" selected>2 weeks</option><option value="30">month</option></select></div>
+    <button class="btn primary">Add topic</button>
+  </form>
+  {% if targets %}
+  <table class="table compact">
+    <thead><tr><th scope="col">Topic</th><th scope="col">Businesses</th><th scope="col">Last collected</th><th scope="col">Repeats</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+    <tbody>
+    {% for t in targets %}
+    <tr {% if not t.enabled %}class="dim"{% endif %}>
+      <td>{% if t.dataset %}<a class="name" href="/d/{{ t.dataset }}">{{ t.what }} in {{ country_name(t.country) }}</a>{% else %}<strong>{{ t.what }} in {{ country_name(t.country) }}</strong>{% endif %}{% if t.keywords %}<span class="sub">{{ t.keywords }}</span>{% endif %}</td>
+      <td>{{ t.n }}</td>
+      <td class="sub">{{ fmt_date(t.last_run) or "Not yet" }}</td>
+      <td class="sub">every {{ t.every_days|int }} days</td>
+      <td><form method="post" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost" formaction="/app/admin/crawler/t-{{ t.id }}-now">Collect now</button>
+        <button class="btn small ghost" formaction="/app/admin/crawler/t-{{ t.id }}-toggle">{{ "Pause" if t.enabled else "Resume" }}</button>
+        <button class="btn small ghost" formaction="/app/admin/crawler/t-{{ t.id }}-delete">Remove</button></form></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No topics yet. Add one above, or start with the starter list of 40 topics across Ghana, Nigeria, Côte d’Ivoire, Kenya and more.</p>{% endif %}
+</section>
+<div class="two-col">
+  <section class="panel">
+    <div class="panel-head"><h2>What people search for</h2><span class="muted">30 days</span></div>
+    {% if popular %}
+    <ul class="plain-list">{% for p in popular %}<li><span>{{ p.what }} in {{ country_name(p.country) }}</span><span class="muted">{{ p.n }}×</span>
+      <form method="post" action="/app/admin/crawler/from-search" class="right"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="what" value="{{ p.what }}"><input type="hidden" name="country" value="{{ p.country }}"><button class="btn small ghost">Crawl regularly</button></form></li>{% endfor %}</ul>
+    {% else %}<p class="muted">Searches from the public site appear here.</p>{% endif %}
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>Pages found by search</h2><span class="muted">not reviewed yet</span></div>
+    {% if discovered %}
+    <ul class="plain-list">{% for d in discovered %}<li><a href="/app/pages/{{ d.slug }}">{{ d.title }}</a><span class="muted right">{{ d.n }}</span></li>{% endfor %}</ul>
+    <p class="hint">Open a page and choose <strong>Make public</strong> to list it on the home page and in the sitemap.</p>
+    {% else %}<p class="muted">None yet.</p>{% endif %}
+  </section>
+</div>
+{% if running %}
+<section class="panel"><div class="panel-head"><h2>Working now</h2></div>
+  <ul class="plain-list">{% for j in running %}<li><a href="/app/pages/{{ j.dataset }}">{{ j.title or j.dataset }}</a><span class="status j-{{ j.status }}">{{ JOB_LABEL[j.status] }}</span><span class="muted right">{{ {"discover": "from a search", "crawl": "scheduled", "refresh": "refresh", "build": "workspace"}.get(j.kind, j.kind) }}</span></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "app_base.html" %}
+{% block title %}Shortlists{% endblock %}
+{% block main %}
+<header class="app-head"><div><h1>Shortlists</h1><p class="muted">Collect businesses from any data page, add notes, and download them as CSV.</p></div></header>
+<form method="post" class="panel inline-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="l-name">New shortlist</label><input id="l-name" name="name" maxlength="80" placeholder="e.g. Preform suppliers to call" required>
+  <button class="btn primary">Create shortlist</button>
+</form>
+{% if lists %}
+<div class="card-grid">
+  {% for l in lists %}
+  <a class="list-card" href="/app/lists/{{ l.id }}"><h3>{{ l.name }}</h3><p class="muted">{{ l.n }} business{{ "es" if l.n != 1 }}</p><p class="sub">Created {{ fmt_date(l.created_at) }}</p></a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty"><h3>No shortlists yet</h3><p>Open any business on a data page and choose <strong>Save</strong> to start one.</p><a class="btn" href="/">Browse data pages</a></div>
+{% endif %}
+{% endblock %}

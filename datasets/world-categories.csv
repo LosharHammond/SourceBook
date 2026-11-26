@@ -1,0 +1,31 @@
+what,keywords,osm_tags
+Pharmacies,pharmacy,amenity=pharmacy
+Supermarkets and grocery stores,supermarket,shop=supermarket;shop=convenience
+Hardware and building supply stores,hardware,shop=hardware;shop=doityourself
+Bakeries,bakery,shop=bakery
+Restaurants,restaurant,amenity=restaurant
+Hotels and guest houses,hotel,tourism=hotel;tourism=guest_house
+Car repair workshops,repair,shop=car_repair
+Clinics and doctors,clinic,amenity=clinic;amenity=doctors
+Dentists,dentist,amenity=dentist
+Hairdressers and beauty salons,salon,shop=hairdresser;shop=beauty
+Clothing shops,clothes,shop=clothes
+Electronics and mobile phone shops,electronics,shop=electronics;shop=mobile_phone
+Furniture shops and makers,furniture,shop=furniture;craft=carpenter
+Agricultural supply stores,agro,shop=agrarian
+Printing shops,printing,shop=copyshop;craft=printer
+Tailors,tailor,craft=tailor
+Wholesalers,wholesale,shop=wholesale
+Factories and manufacturers,factory,man_made=works
+Logistics companies,logistics,office=logistics
+Travel agencies,travel,shop=travel_agency
+Accountants,accountant,office=accountant
+Lawyers,lawyer,office=lawyer
+Insurance offices,insurance,office=insurance
+Estate agents,estate,office=estate_agent
+Fuel stations,fuel,amenity=fuel
+Butchers,butcher,shop=butcher
+Cafes,cafe,amenity=cafe
+Gyms and fitness centres,fitness,leisure=fitness_centre
+Veterinary clinics,veterinary,amenity=veterinary
+Driving schools,driving,amenity=driving_school

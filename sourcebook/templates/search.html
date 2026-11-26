@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Search{% if q %}: {{ q }}{% endif %}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block main %}
+<section class="wrap page">
+  <form class="search-bar" action="/search" role="search">
+    <label class="sr" for="sq">What are you looking for?</label>
+    <input id="sq" name="q" type="search" value="{{ q }}" placeholder="e.g. cocoa exporters, solar installers Kenya" required>
+    <label class="sr" for="sin">Country</label>
+    <select id="sin" name="in">{% for code, name in COUNTRIES %}<option value="{{ code }}" {% if code == chosen %}selected{% endif %}>{{ name }}</option>{% endfor %}</select>
+    <button class="btn primary">Search</button>
+  </form>
+  <p class="fine search-note">Type a kind of business. A country in the words wins over the one picked in the list.</p>
+
+  {% if live %}
+    {% if live.slug %}
+    <section class="live" id="live" data-slug="{{ live.slug }}" data-lens="{{ lens }}" data-running="{{ 1 if live.started or live.running else 0 }}">
+      <div class="live-head">
+        <div>
+          <h2>{{ live.title or (live.what|capitalize ~ " in " ~ country_name(live.country)) }}</h2>
+          <p class="muted" id="live-progress">{% if live.started or live.running %}Searching {{ sources|join(", ") }}…{% else %}Loading…{% endif %}</p>
+        </div>
+        <div class="live-count"><span id="live-count">…</span><span>businesses</span></div>
+      </div>
+      <div class="live-bar" {% if not (live.started or live.running) %}hidden{% endif %} id="live-bar"><span></span></div>
+      <div class="lens-row" role="group" aria-label="What you sell">
+        <span class="lens-label">What you sell</span>
+        {% for key, (lbl, who, _w) in LENSES.items() %}<a class="lens{{ ' on' if key == lens }}" href="/search?q={{ q|urlencode }}&in={{ chosen }}&lens={{ key }}" title="{{ who }}" data-lens="{{ key }}" {% if key == lens %}aria-current="true"{% endif %}>{{ lbl }}</a>{% endfor %}
+      </div>
+      <div class="tabs-row" id="tabs" role="tablist" aria-label="Filter results"></div>
+      <div class="results-tools">
+        <span class="muted" id="rowcount"></span>
+        <div class="inline">
+          <button class="btn small ghost" type="button" id="map-toggle" aria-pressed="false">Show map</button>
+          <a class="btn small" id="csv" href="/search/export/{{ live.slug }}.csv?lens={{ lens }}">Download CSV</a>
+          {% if user %}
+            {% if monitored %}<a class="btn small ghost" href="/app/monitors">Monitoring</a>{% else %}
+            <form method="post" action="/app/monitors" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="dataset" value="{{ live.slug }}"><input type="hidden" name="q" value="{{ q }}"><input type="hidden" name="lens" value="{{ lens }}"><button class="btn small primary">Monitor this search</button></form>{% endif %}
+          {% else %}<a class="btn small ghost" href="/signin?next={{ ('/search?q=' ~ (q|urlencode) ~ '&lens=' ~ lens)|urlencode }}">Sign in to monitor</a>{% endif %}
+        </div>
+      </div>
+      <div id="map" class="map" hidden></div>
+      <div class="lead-table-wrap">
+        <table class="table leads" id="leads">
+          <thead><tr><th scope="col">#</th><th scope="col">Business</th><th scope="col">Contact</th><th scope="col">Why reach out</th><th scope="col">Priority</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="fine">Reasons come from checks Sourcebook made of the map, the business’s website and the company register{% if live.place %}, in and around {{ live.place.name }}{% endif %}. Check details before you get in touch, and say where you found them. Star ratings and review counts aren’t shown because no open source publishes them.</p>
+      <p class="live-foot"><a class="btn" href="/d/{{ live.slug }}">Open the full page with every source</a></p>
+    </section>
+    {% elif live.reason == "unclear" %}
+    <div class="notice plain">Searching more sources needs a kind of business, such as “dentists in Austin” or “packaging suppliers Ghana”. Here’s what Sourcebook already has.</div>
+    {% elif live.reason == "limit" %}
+    <div class="notice warn">You’ve started a lot of new searches this hour, so this one only shows businesses Sourcebook already has. Try again later, or <a href="/signup">create an account</a> to build pages in your workspace.</div>
+    {% elif live.reason == "busy" %}
+    <div class="notice warn">Sourcebook is busy collecting other searches. Here’s what it already has; try again in a few minutes for more.</div>
+    {% endif %}
+  {% endif %}
+
+  {% if hits %}
+  <h2 class="section-h small">{% if live and live.slug %}Also matching on other pages{% else %}Matching businesses{% endif %}</h2>
+  <ul class="rows">
+    {% for h in hits %}
+    <li class="row"><a href="/d/{{ h.dataset }}/{{ h.slug }}"><h3>{{ h.name }}</h3></a>
+      <p class="muted">{{ h.city or "Town not listed" }}, in {{ names.get(h.dataset, "") }}</p>
+      {% if h.products %}<div class="chips">{% for p in h.products[:5] %}<span class="chip">{{ p }}</span>{% endfor %}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif q and not (live and live.slug) %}
+  <div class="empty"><h3>No businesses match “{{ q }}” yet</h3><p>Try a kind of business, such as “labels” or “cartons”, or a town, such as “Tema”.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const box = document.getElementById("live");
+  if (!box) return;
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const tbody = $("leads").querySelector("tbody");
+  let tab = "all", data = null, map = null, layer = null;
+  const href = (k, v) => k === "phone" ? "tel:" + v.replace(/\s/g, "") : k === "email" ? "mailto:" + v : "https://wa.me/" + v.replace(/[^\d]/g, "");
+  const render = () => {
+    if (!data) return;
+    const tabs = $("tabs"); tabs.replaceChildren();
+    for (const t of data.tabs) {
+      const b = el("button", "tab" + (t.key === tab ? " on" : ""), `${t.label} ${t.count}`);
+      b.type = "button"; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", t.key === tab);
+      b.onclick = () => { tab = t.key; render(); };
+      tabs.append(b);
+    }
+    const rows = data.businesses.filter(b => b.tabs.includes(tab));
+    $("rowcount").textContent = `${rows.length} of ${data.count} rows`;
+    tbody.replaceChildren();
+    rows.forEach((b, i) => {
+      const tr = el("tr");
+      tr.append(el("td", "n", String(i + 1)));
+      const biz = el("td"); const a = el("a", "name", b.name); a.href = b.url; biz.append(a, el("span", "sub", [b.city, b.kind].filter(Boolean).join(", ") || "Details on the profile"));
+      if (b.website) { const w = el("a", "sub web", b.website.replace(/^https?:\/\//, "").replace(/\/$/, "")); w.href = b.website; w.rel = "nofollow noopener"; w.target = "_blank"; biz.append(w); }
+      const ct = el("td", "contact");
+      for (const [k, v] of Object.entries(b.contacts)) {
+        const line = el("span", "cline"); line.append(el("span", "ch ch-" + k, k === "whatsapp" ? "WhatsApp" : k === "email" ? "Email" : "Phone"));
+        if (b.demo) line.append(el("span", "", v)); else { const l = el("a", "", v); l.href = href(k, v); l.rel = "nofollow noopener"; line.append(l); }
+        ct.append(line);
+      }
+      if (!b.contacts.email) ct.append(el("span", "muted small-note", "Email not found"));
+      const why = el("td", "why");
+      for (const r of b.reasons) { const p = el("p", r.need ? "need" : ""); p.append(el("strong", "", r.label), el("span", "", " " + r.detail)); why.append(p); }
+      if (!b.reasons.length) why.append(el("span", "muted", "Nothing observed for this choice"));
+      if (b.opening) {
+        const op = el("div", "opening"); const q = el("q", "", b.opening);
+        const copy = el("button", "btn small ghost", "Copy opening line"); copy.type = "button";
+        copy.onclick = async () => { try { await navigator.clipboard.writeText(b.opening); copy.textContent = "Copied"; } catch { copy.textContent = "Select and copy"; } };
+        op.append(q, copy); why.append(op);
+      }
+      const pr = el("td", "prio"); const badge = el("span", "prio-n" + (b.priority >= 60 ? " hi" : b.priority >= 30 ? " mid" : ""), String(b.priority)); pr.append(badge);
+      tr.append(biz, ct, why, pr); tbody.append(tr);
+    });
+    if (map) drawMap(rows);
+  };
+  const drawMap = rows => {
+    if (!window.L) return;
+    if (layer) layer.remove();
+    const pts = rows.filter(b => b.lat != null && b.lon != null);
+    layer = L.layerGroup(pts.map(b => L.circleMarker([b.lat, b.lon], { radius: 7, color: "#1F2547", weight: 2, fillColor: b.priority >= 60 ? "#C8473A" : "#E0B23D", fillOpacity: .9 })
+      .bindPopup(() => { const d = el("div"); const a = el("a", "", b.name); a.href = b.url; d.append(a, el("div", "", `Priority ${b.priority}`)); return d; }))).addTo(map);
+    if (pts.length) map.fitBounds(L.latLngBounds(pts.map(b => [b.lat, b.lon])).pad(0.15));
+  };
+  $("map-toggle").onclick = () => {
+    const m = $("map"), show = m.hidden;
+    m.hidden = !show; $("map-toggle").textContent = show ? "Hide map" : "Show map"; $("map-toggle").setAttribute("aria-pressed", show);
+    if (show && !map) {
+      const css = document.createElement("link"); css.rel = "stylesheet"; css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.append(css);
+      const js = document.createElement("script"); js.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      js.onload = () => {
+        map = L.map("map", { scrollWheelZoom: false }).setView([0, 0], 2);
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+        render();
+      };
+      document.head.append(js);
+    } else if (show && map) setTimeout(() => map.invalidateSize(), 50);
+  };
+  const tick = async () => {
+    try { const r = await fetch(`/search/live/${box.dataset.slug}?lens=${box.dataset.lens}`); if (!r.ok) throw 0; data = await r.json(); }
+    catch { return setTimeout(tick, 5000); }
+    $("live-count").textContent = data.count;
+    render();
+    if (data.status === "running") { $("live-progress").textContent = data.progress || "Searching…"; setTimeout(tick, 3000); }
+    else {
+      $("live-bar").hidden = true;
+      $("live-progress").textContent = data.count ? `Checked ${data.checked}. Ranked for: ${data.lens_label}.` : "No matching businesses found in the open sources. Try a different wording, a bigger town, or another country.";
+    }
+  };
+  tick();
+})();
+</script>
+{% endblock %}

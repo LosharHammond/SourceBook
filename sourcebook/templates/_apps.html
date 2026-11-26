@@ -1,0 +1,11 @@
+{% macro app_menu(dark=True) %}
+<details class="kx-apps{{ ' on-dark' if dark }}">
+  <summary aria-label="Kenuxa apps" title="Kenuxa apps"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{% for y in [4,12,20] %}{% for x in [4,12,20] %}<circle cx="{{ x }}" cy="{{ y }}" r="2.2"/>{% endfor %}{% endfor %}</svg></summary>
+  <div class="kx-menu" role="menu">
+    <p>Kenuxa apps</p>
+    <ul>{% for a in kenuxa_apps() %}<li><a role="menuitem" href="{{ '/' if a.here else a.home_url }}" {% if not a.here %}target="_blank" rel="noopener"{% endif %}>
+      <span class="kx-ic kx-{{ a.client_id }}">{% if a.client_id == 'sourcebook' %}<img src="/static/mark.svg" alt="">{% elif a.client_id == 'bask' %}<svg width="34" height="34" viewBox="0 0 32 32" aria-hidden="true"><path d="M8.8 3.4L23 9L8.8 14.6Z" fill="#f5a524" stroke="#f5a524" stroke-width="1.6" stroke-linejoin="round"/><path d="M8.8 17.6L23 23.2L8.8 28.8Z" fill="#d9831a" stroke="#d9831a" stroke-width="1.6" stroke-linejoin="round"/></svg>{% elif a.client_id == 'heimdall' %}<img src="/static/heimdall.svg" alt="">{% elif a.icon_url %}<img src="{{ a.icon_url }}" alt="">{% else %}{{ a.short[:1] }}{% endif %}</span>{{ a.short }}</a></li>{% endfor %}</ul>
+    <small>One Kenuxa Account works in every app.</small>
+  </div>
+</details>
+{% endmacro %}

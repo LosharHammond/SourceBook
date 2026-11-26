@@ -1,0 +1,30 @@
+{
+  "slug": "food-packaging-suppliers-ghana",
+  "title": "Food packaging suppliers in Ghana",
+  "summary": "Businesses in Ghana that make or sell packaging used for food and drinks — bottles and preforms, sachet film, flexible pouches, labels, cartons and boxes, containers and closures — with the products and business contacts they publish.",
+  "country": "GH",
+  "country_name": "Ghana",
+  "kind_label": "packaging supplier",
+  "osm_selectors": [
+    "[\"industrial\"=\"packaging\"]",
+    "[\"shop\"=\"packaging\"]",
+    "[\"craft\"=\"packaging\"]",
+    "[\"product\"~\"packag|bottle|carton|label|sachet\",i]"
+  ],
+  "osm_name_regex": "packag|plastic|carton|corrugat|label|bottl|preform|sachet|container|pouch|box",
+  "seeds": "food-packaging-ghana.seeds.csv",
+  "products": {
+    "PET bottles and preforms": ["pet bottle", "preform", "pet preform", "plastic bottle"],
+    "Sachet and roll film": ["sachet", "roll film", "laminated film", "printed film"],
+    "Flexible pouches": ["pouch", "stand-up pouch", "flexible packaging", "zip lock", "ziplock"],
+    "Labels and printing": ["label", "sticker", "printing"],
+    "Cartons and corrugated boxes": ["carton", "corrugated", "box", "boxes"],
+    "Food containers and takeaway": ["food container", "takeaway", "take-away", "disposable", "lunch box", "styrofoam"],
+    "Caps and closures": ["cap", "closure", "lid"],
+    "Glass jars and bottles": ["glass jar", "glass bottle"],
+    "Paper bags": ["paper bag", "kraft bag"],
+    "Cans and tins": ["tin can", "aluminium can", "cans"],
+    "Plastic bags": ["polythene", "poly bag", "plastic bag", "shopping bag"]
+  },
+  "relevance_keywords": ["packag", "bottle", "preform", "sachet", "carton", "corrugat", "label", "container", "pouch", "film", "closure", "polythene"]
+}

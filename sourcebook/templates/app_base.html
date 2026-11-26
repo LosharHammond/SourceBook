@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{% block title %}Workspace{% endblock %} · Sourcebook</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="/static/mark.svg" type="image/svg+xml">
+</head>
+<body class="app">
+{% from "_apps.html" import app_menu %}
+{% macro nav(href, label, icon, match=None) -%}
+{% set active = (path == href) if match is none else path.startswith(match) %}
+<a href="{{ href }}" class="rail-link{% if active %} active{% endif %}" {% if active %}aria-current="page"{% endif %}><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#{{ icon }}"/></svg><span>{{ label }}</span></a>
+{%- endmacro %}
+<aside class="rail" aria-label="Workspace">
+  <a class="rail-brand" href="/app"><img src="/static/mark.svg" alt="" width="28" height="28"><span>Sourcebook</span></a>
+  <a class="btn primary rail-new" href="/app/new"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#plus"/></svg><span>New data page</span></a>
+  <nav class="rail-nav">
+    {{ nav("/app", "Overview", "home") }}
+    {{ nav("/app/pages", "My pages", "pages", "/app/pages") }}
+    {{ nav("/app/monitors", "Monitors and history", "radar", "/app/monitors") }}
+    {{ nav("/app/lists", "Shortlists", "list", "/app/lists") }}
+    {{ nav("/app/corrections", "Corrections", "check", "/app/corrections") }}
+    {% if user.role == "admin" %}{{ nav("/app/admin/crawler", "Crawler", "radar", "/app/admin/crawler") }}{{ nav("/app/admin", "Admin", "shield") }}{% endif %}
+  </nav>
+  <div class="rail-foot">
+    <a href="/" class="rail-link"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#globe"/></svg><span>Public site</span></a>
+    {{ nav("/app/account", user.name or user.email, "user") }}
+    <form method="post" action="/signout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="rail-link as-button"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#out"/></svg><span>Sign out</span></button></form>
+  </div>
+</aside>
+<main class="app-main" id="main">
+  <header class="topbar">{{ app_menu(dark=False) }}<a class="topbar-avatar" href="/app/account" title="{{ user.name or user.email }} ({{ user.email }})" aria-label="Your account">{{ ((user.name or user.email).split(" ")|map("first")|join)[:2]|upper }}</a></header>
+  {% set flash = request.query_params.get("flash") %}{% if flash %}<div class="notice {{ 'warn' if request.query_params.get('fk') == 'warn' else 'ok' }}" role="status">{{ flash }}</div>{% endif %}
+  {% block main %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,1 @@
+{% set flash = request.query_params.get("flash") %}{% if flash %}<div class="wrap flash-wrap"><div class="notice {{ 'warn' if request.query_params.get('fk') == 'warn' else 'ok' }}" role="status">{{ flash }}</div></div>{% endif %}

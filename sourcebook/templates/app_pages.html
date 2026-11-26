@@ -1,0 +1,27 @@
+{% extends "app_base.html" %}
+{% block title %}My pages{% endblock %}
+{% block main %}
+<header class="app-head">
+  <div><h1>{{ "All pages" if show_all else "My pages" }}</h1>
+  {% if user.role == "admin" %}<p class="seg-links"><a href="/app/pages" {% if not show_all %}aria-current="page"{% endif %}>Mine</a><a href="/app/pages?all=1" {% if show_all %}aria-current="page"{% endif %}>Everyone's</a></p>{% endif %}</div>
+  <a class="btn primary" href="/app/new">New data page</a>
+</header>
+{% if pages %}
+<table class="table">
+  <thead><tr><th scope="col">Page</th><th scope="col">Status</th><th scope="col">Businesses</th><th scope="col">Last built</th>{% if show_all %}<th scope="col">Owner</th>{% endif %}</tr></thead>
+  <tbody>
+  {% for d in pages %}
+  <tr>
+    <td><a class="name" href="/app/pages/{{ d.slug }}">{{ d.title }}</a></td>
+    <td><span class="status s-{{ d.status }}">{{ STATUS_LABEL[d.status] }}</span></td>
+    <td>{{ d.n }}</td>
+    <td class="sub">{{ fmt_date(d.built_at) or "Not yet" }}</td>
+    {% if show_all %}<td class="sub">{{ owners.get(d.owner, "Sourcebook") }}</td>{% endif %}
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty"><h3>No pages yet</h3><p>Describe the businesses you want listed and pick a country.</p><a class="btn primary" href="/app/new">New data page</a></div>
+{% endif %}
+{% endblock %}

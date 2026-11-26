@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}{{ e.name }}{% endblock %}
+{% block description %}{{ e.description }}{% endblock %}
+{% block head %}{% if not e.demo %}
+<script type="application/ld+json">{{ {"@context": "https://schema.org", "@type": "Organization", "name": e.name, "url": e.website or None,
+  "telephone": (e.contacts.phone[0].value if e.contacts.phone else None), "email": (e.contacts.email[0].value if e.contacts.email else None),
+  "address": {"@type": "PostalAddress", "addressLocality": e.city, "addressCountry": d.country}} | tojson }}</script>
+{% endif %}{% endblock %}
+{% block main %}
+<section class="ds-head slim">
+  <div class="wrap">
+    <p class="crumbs"><a href="/">Data pages</a> / <a href="/d/{{ d.slug }}">{{ d.title }}</a></p>
+    <h1>{{ e.name }}</h1>
+    <p class="lede">{{ e.city or "Town not listed" }}{% if e.region %}, {{ e.region }}{% endif %}. Last checked {{ fmt_date(e.checked_at) }}.</p>
+  </div>
+</section>
+{% if sent %}<div class="wrap"><div class="notice ok" role="status"><strong>Thanks — your correction was sent.</strong> A reviewer checks it against the evidence before the page changes.</div></div>{% endif %}
+{% if e.demo %}<div class="wrap"><div class="notice warn"><strong>Sample profile.</strong> This business is fictional and exists only to show how a profile looks.</div></div>{% endif %}
+<section class="wrap profile">
+  <div class="main-col">
+    <article class="card">
+      <h2>About</h2>
+      <p class="desc">{{ e.description or "No description yet." }}</p>
+      {% if e.description_sources %}<p class="fine">Written from:
+        {% for s in e.description_sources %}<a href="{{ s }}" rel="nofollow noopener" target="_blank">[{{ loop.index }}]</a> {% endfor %}</p>{% endif %}
+      {% if e.products %}
+      <h3>Supplies</h3>
+      <ul class="facts">
+        {% for f in by_field.get("product", []) %}
+        <li><span>{{ f.value }}</span><a class="src" href="{{ f.source_url }}" rel="nofollow noopener" target="_blank">{{ SOURCE_LABEL.get(f.source_type, f.source_type) }}, {{ fmt_date(f.observed_at) }}</a></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </article>
+    {% if e.gaps %}
+    <article class="card gaps-card" id="missing">
+      <h2>What this business needs or doesn’t have yet</h2>
+      <p class="muted">From Sourcebook’s checks of the map, its website, the company register and the sources listed below. If you can supply one of these, whatever your trade, contact the business through the details it publishes.</p>
+      <ul class="gap-list">
+        {% for g in e.gaps %}
+        {% if loop.first or g.category != loop.previtem.category %}<li class="gap-cat">{{ g.category }}</li>{% endif %}
+        <li class="{{ 'need' if g.category == 'Stated needs' }}">
+          <div><strong>{{ g.label }}</strong><span class="gap-detail">{{ g.detail }}</span></div>
+          <div class="gap-meta"><span class="helper">Who could help: {{ g.helper }}</span>
+            {% if g.source_url.startswith("http") %}<a class="src" href="{{ g.source_url }}" rel="nofollow noopener" target="_blank">Checked {{ fmt_date(g.observed_at) }}</a>{% else %}<span class="src">Checked {{ fmt_date(g.observed_at) }}</span>{% endif %}</div>
+        </li>
+        {% endfor %}
+      </ul>
+    </article>
+    {% endif %}
+    <article class="card">
+      <h2>Every fact and where it came from</h2>
+      <table class="table compact">
+        <thead><tr><th scope="col">Detail</th><th scope="col">Value</th><th scope="col">Source</th><th scope="col">Seen</th></tr></thead>
+        <tbody>
+        {% for f in e.facts if f.field != "gap" %}
+        <tr><td>{{ FIELD_LABEL.get(f.field, f.field) }}</td><td class="val">{{ f.value }}</td>
+          <td>{% if f.source_url.startswith("http") %}<a href="{{ f.source_url }}" rel="nofollow noopener" target="_blank">{{ SOURCE_LABEL.get(f.source_type, f.source_type) }}</a>{% else %}{{ SOURCE_LABEL.get(f.source_type, f.source_type) }}{% endif %}</td>
+          <td class="sub">{{ fmt_date(f.observed_at) }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </article>
+  </div>
+  <aside class="side-col">
+    <div class="card save">
+      {% if user %}
+      <form method="post" action="/app/lists/save" class="form save-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="entity" value="{{ e.id }}"><input type="hidden" name="next" value="{{ path }}">
+        <label for="s-list">{% if saved %}Saved in {{ saved|length }} shortlist{{ "s" if saved|length > 1 }}. Add to another:{% else %}Save to a shortlist{% endif %}</label>
+        <div class="inline">
+          <select id="s-list" name="list">{% for l in lists %}<option value="{{ l.id }}" {% if l.id in saved %}disabled{% endif %}>{{ l.name }}{% if l.id in saved %} (saved){% endif %}</option>{% endfor %}<option value="new">New shortlist…</option></select>
+          <button class="btn primary">Save</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="save-anon"><a href="/signin?next={{ path|urlencode }}">Sign in</a> to save this business to a shortlist.</p>
+      {% endif %}
+    </div>
+    <div class="card contact">
+      <h2>Contact</h2>
+      {% set any_contact = namespace(v=false) %}
+      {% for ch in ["whatsapp", "phone", "email", "telegram", "website", "facebook", "instagram", "linkedin"] %}
+        {% for c in e.contacts.get(ch, []) %}{% set any_contact.v = true %}
+        <div class="contact-row">
+          <span class="ch ch-{{ ch }}">{{ CONTACT_LABEL[ch] }}</span>
+          {% set href = contact_href(ch, c.value) %}
+          {% if href and not e.demo %}<a class="cval" href="{{ href }}" rel="nofollow noopener" {% if href.startswith("http") %}target="_blank"{% endif %}>{{ c.value }}</a>{% else %}<span class="cval">{{ c.value }}</span>{% endif %}
+          <a class="src" href="{{ c.source_url }}" rel="nofollow noopener" target="_blank">Published on {{ SOURCE_LABEL.get(c.source_type, c.source_type) }}</a>
+        </div>
+        {% endfor %}
+      {% endfor %}
+      {% if not any_contact.v %}<p class="muted">This business hasn't published contact details in the sources we read.</p>{% endif %}
+      <p class="fine">Only contacts the business published itself. Mention Sourcebook when you get in touch.</p>
+    </div>
+    <div class="card" id="correct">
+      <h2>Fix or remove this listing</h2>
+      <form method="post" action="/d/{{ d.slug }}/{{ e.slug }}/correct" class="form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <fieldset class="seg"><legend class="sr">What do you want to do?</legend>
+          <label><input type="radio" name="kind" value="change" checked> Suggest a correction</label>
+          <label><input type="radio" name="kind" value="remove"> Ask for removal</label>
+        </fieldset>
+        <label for="c-field">Detail</label>
+        <select id="c-field" name="field">{% for k, v in FIELD_LABEL.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}<option value="other">Something else</option></select>
+        <label for="c-value">Correct value</label>
+        <input id="c-value" name="value" maxlength="500">
+        <label for="c-evidence">Where can we check it? <span class="opt">Link, optional</span></label>
+        <input id="c-evidence" name="evidence_url" type="url" maxlength="500" placeholder="https://">
+        <label for="c-message">Anything else <span class="opt">optional</span></label>
+        <textarea id="c-message" name="message" rows="3" maxlength="2000"></textarea>
+        <label for="c-contact">Your email or phone <span class="opt">optional, only for follow-up</span></label>
+        <input id="c-contact" name="contact" maxlength="200">
+        <label class="check"><input type="checkbox" name="is_owner" value="1"> I work for this business</label>
+        <div class="hp" aria-hidden="true"><label>Leave empty <input name="website_url" tabindex="-1" autocomplete="off"></label></div>
+        <button class="btn primary">Send to reviewer</button>
+      </form>
+    </div>
+  </aside>
+</section>
+{% endblock %}

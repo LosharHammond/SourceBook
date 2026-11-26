@@ -1,0 +1,45 @@
+{% extends "app_base.html" %}
+{% block title %}Overview{% endblock %}
+{% block main %}
+<header class="app-head">
+  <div><h1>Hello{% if user.name %}, {{ user.name.split(" ")[0] }}{% endif %}</h1>
+  <p class="muted">Build a data page for any kind of business in any country, then shortlist the ones you want to contact.</p></div>
+  <a class="btn primary" href="/app/new">New data page</a>
+</header>
+<section class="tiles">
+  <a class="tile" href="/app/pages"><span class="tile-n">{{ mine|length }}</span><span>data page{{ "s" if mine|length != 1 }} you made</span></a>
+  <a class="tile" href="/app/lists"><span class="tile-n">{{ lists|sum(attribute="n") }}</span><span>business{{ "es" if lists|sum(attribute="n") != 1 }} saved to shortlists</span></a>
+  <a class="tile" href="/app/corrections"><span class="tile-n">{{ open_corrections }}</span><span>correction{{ "s" if open_corrections != 1 }} to review</span></a>
+  {% if user.role == "admin" %}<a class="tile accent" href="/app/admin"><span class="tile-n">{{ pending }}</span><span>page{{ "s" if pending != 1 }} waiting for approval</span></a>{% endif %}
+</section>
+<div class="two-col">
+  <section class="panel">
+    <div class="panel-head"><h2>Your pages</h2><a href="/app/pages">See all</a></div>
+    {% if mine %}
+    <ul class="plain-list">
+      {% for d in mine[:6] %}
+      <li><a href="/app/pages/{{ d.slug }}"><strong>{{ d.title }}</strong></a><span class="status s-{{ d.status }}">{{ STATUS_LABEL[d.status] }}</span><span class="muted right">{{ d.n }} businesses</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty small"><h3>Make your first data page</h3><p>Describe the businesses (“cocoa exporters”), pick a country, and Sourcebook collects them from open sources.</p><a class="btn primary" href="/app/new">New data page</a></div>
+    {% endif %}
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>Recent builds</h2></div>
+    {% if jobs %}
+    <ul class="plain-list">
+      {% for j in jobs %}
+      <li><a href="/app/pages/{{ j.dataset }}">{{ j.title or j.dataset }}</a><span class="status j-{{ j.status }}">{{ JOB_LABEL[j.status] }}</span><span class="muted right">{{ fmt_date(j.created_at) }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">Builds you start appear here.</p>{% endif %}
+  </section>
+</div>
+<section class="panel">
+  <div class="panel-head"><h2>Public data pages</h2><a href="/">Open the public site</a></div>
+  <ul class="plain-list">
+    {% for d in public %}<li><a href="/d/{{ d.slug }}"><strong>{{ d.title }}</strong></a><span class="muted right">{{ d.n }} businesses</span></li>{% else %}<li class="muted">None yet.</li>{% endfor %}
+  </ul>
+</section>
+{% endblock %}

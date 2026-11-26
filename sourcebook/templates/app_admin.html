@@ -1,0 +1,37 @@
+{% extends "app_base.html" %}
+{% block title %}Admin{% endblock %}
+{% block main %}
+<header class="app-head"><div><h1>Admin</h1><p class="muted">Approve new pages, watch builds and manage accounts.</p></div></header>
+<section class="panel">
+  <div class="panel-head"><h2>Pages waiting for approval</h2></div>
+  {% if review %}
+  <ul class="plain-list">
+    {% for d in review %}<li><a href="/app/pages/{{ d.slug }}"><strong>{{ d.title }}</strong></a><span class="muted">{{ d.n }} businesses, by {{ (owners.get(d.owner) or {}).get("name") or "unknown" }}</span><a class="btn small right" href="/d/{{ d.slug }}">Preview</a></li>{% endfor %}
+  </ul>
+  {% else %}<p class="muted">Nothing waiting.</p>{% endif %}
+</section>
+<section class="panel">
+  <div class="panel-head"><h2>Builds running or waiting</h2></div>
+  {% if running %}
+  <ul class="plain-list">{% for j in running %}<li><a href="/app/pages/{{ j.dataset }}">{{ j.title or j.dataset }}</a><span class="status j-{{ j.status }}">{{ JOB_LABEL[j.status] }}</span><span class="muted right">{{ fmt_time(j.created_at) }}</span></li>{% endfor %}</ul>
+  {% else %}<p class="muted">No builds running.</p>{% endif %}
+</section>
+<section class="panel">
+  <div class="panel-head"><h2>Accounts</h2><span class="muted">{{ users|length }}</span></div>
+  <table class="table compact">
+    <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Pages</th><th scope="col">Joined</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+    <tbody>
+    {% for u in users %}
+    <tr {% if u.disabled %}class="dim"{% endif %}>
+      <td>{{ u.name }}</td><td>{{ u.email }}</td><td>{{ "Admin" if u.role == "admin" else "Member" }}{% if u.disabled %}, disabled{% endif %}</td>
+      <td>{{ u.pages }}</td><td class="sub">{{ fmt_date(u.created_at) }}</td>
+      <td>{% if u.id != user.id %}<form method="post" action="/app/admin/users/{{ u.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+        {% if u.role == "admin" %}<button class="btn small ghost" name="action" value="make_member">Make member</button>{% else %}<button class="btn small ghost" name="action" value="make_admin">Make admin</button>{% endif %}
+        {% if u.disabled %}<button class="btn small ghost" name="action" value="enable">Enable</button>{% else %}<button class="btn small ghost" name="action" value="disable">Disable</button>{% endif %}
+      </form>{% else %}<span class="muted">You</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

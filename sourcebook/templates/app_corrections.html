@@ -1,0 +1,27 @@
+{% extends "app_base.html" %}
+{% block title %}Corrections{% endblock %}
+{% block main %}
+<header class="app-head"><div><h1>Corrections</h1><p class="muted">{% if user.role == "admin" %}Fixes and removal requests sent from every page.{% else %}Fixes and removal requests sent about businesses on your pages.{% endif %} Nothing changes until you approve it.</p></div></header>
+{% if items %}
+<ul class="rows">
+{% for c in items %}
+  <li class="row review">
+    <div>
+      <h3>{% if c.kind == "remove" %}Removal request{% else %}{{ FIELD_LABEL.get(c.field, c.field or "Correction") }}{% endif %}
+        {% if names.get(c.id) %} for <a href="{{ names[c.id][1] }}">{{ names[c.id][0] }}</a>{% endif %}</h3>
+      {% if c.value %}<p><strong>New value:</strong> {{ c.value }}</p>{% endif %}
+      {% if c.evidence_url %}<p><strong>Evidence:</strong> <a href="{{ c.evidence_url }}" rel="nofollow noopener" target="_blank">{{ c.evidence_url }}</a></p>{% endif %}
+      {% if c.message %}<p>{{ c.message }}</p>{% endif %}
+      <p class="sub">Sent {{ fmt_date(c.created_at) }}{% if c.is_owner %} by someone who says they work for the business{% endif %}{% if c.contact %}. Contact: {{ c.contact }}{% endif %}</p>
+    </div>
+    <form method="post" action="/app/corrections/{{ c.id }}" class="review-actions"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn primary" name="action" value="approve">{% if c.kind == "remove" %}Remove listing{% else %}Apply correction{% endif %}</button>
+      <button class="btn ghost" name="action" value="reject">Reject</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<div class="empty"><h3>Nothing to review</h3><p>When someone suggests a fix or asks for a removal, it appears here.</p></div>
+{% endif %}
+{% endblock %}

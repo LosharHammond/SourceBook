@@ -1,0 +1,53 @@
+{% extends "app_base.html" %}
+{% block title %}{{ "Edit page" if editing else "New data page" }}{% endblock %}
+{% block main %}
+<header class="app-head">
+  <div>{% if editing %}<p class="crumbs"><a href="/app/pages/{{ editing.slug }}">{{ editing.title }}</a></p>{% endif %}
+  <h1>{{ "Edit page settings" if editing else "New data page" }}</h1>
+  <p class="muted">Sourcebook finds matching businesses on OpenStreetMap, reads the websites you add, and keeps a source for every detail.</p></div>
+</header>
+{% if errors %}<div class="notice warn" role="alert"><strong>Check these and try again:</strong><ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+<form method="post" class="builder">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <section class="panel form">
+    <h2>What should the page list?</h2>
+    <div class="grid-2">
+      <div><label for="n-what">Kind of business</label>
+        <input id="n-what" name="what" required maxlength="80" value="{{ values.what or '' }}" placeholder="Cocoa exporters">
+        <p class="hint">Plural, as you'd say it: “Solar installers”, “Fish feed suppliers”.</p></div>
+      <div><label for="n-country">Country</label>
+        <select id="n-country" name="country" required>{% for code, name in COUNTRIES %}<option value="{{ code }}" {% if code == values.country %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+    </div>
+    <label for="n-keywords">Keywords <span class="opt">comma-separated</span></label>
+    <input id="n-keywords" name="keywords" value="{{ values.keywords or '' }}" placeholder="cocoa, cacao, export">
+    <p class="hint">Words found in these businesses' names. Sourcebook searches the map with them and leaves out businesses that match none. Leave empty to use the words from “Kind of business”.</p>
+    <label for="n-products">Products or services to look for <span class="opt">one per line, optional</span></label>
+    <textarea id="n-products" name="products" rows="4" placeholder="Cocoa beans&#10;Cocoa butter&#10;Cocoa powder">{{ values.products or '' }}</textarea>
+    <p class="hint">Each business's website is checked for these, and they become the page's product filter.</p>
+  </section>
+  <section class="panel form">
+    <h2>Websites you already know <span class="opt">optional</span></h2>
+    <label for="n-websites">One per line: a website, or “Name, website”</label>
+    <textarea id="n-websites" name="websites" rows="5" placeholder="Golden Bean Exports, goldenbean.ci&#10;www.example-cocoa.ci">{{ values.websites or '' }}</textarea>
+    <p class="hint">From trade fairs, directories or referrals. Sourcebook reads up to four pages on each site (home, contact, about, products) and follows its robots.txt.</p>
+  </section>
+  <details class="panel form" {% if values.osm_tags or values.summary %}open{% endif %}>
+    <summary><h2>Advanced</h2></summary>
+    <label for="n-tags">OpenStreetMap tags <span class="opt">one per line, e.g. shop=packaging</span></label>
+    <textarea id="n-tags" name="osm_tags" rows="3" placeholder="industrial=packaging">{{ values.osm_tags or '' }}</textarea>
+    <p class="hint">Include every place with these tags, whatever its name. See <a href="https://wiki.openstreetmap.org/wiki/Map_features" target="_blank" rel="noopener">OpenStreetMap map features</a>.</p>
+    <label for="n-summary">Page description <span class="opt">optional</span></label>
+    <textarea id="n-summary" name="summary" rows="2" maxlength="400">{{ values.summary or '' }}</textarea>
+  </details>
+  <div class="form-actions">
+    {% if editing %}
+      <label class="check"><input type="checkbox" name="rebuild" value="1" checked> Rebuild the page with these settings</label>
+      <a class="btn ghost" href="/app/pages/{{ editing.slug }}">Cancel</a>
+      <button class="btn primary">Save settings</button>
+    {% else %}
+      <p class="muted">New pages are checked by an admin before they appear on the public site.</p>
+      <button class="btn primary">Build page</button>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block main %}
+<section class="hero">
+  <div class="wrap">
+    <h1>Find who supplies what — and see where every detail came from.</h1>
+    <p class="lede">Search for any kind of business in any country. Sourcebook checks OpenStreetMap, Wikidata, the global company register and each business’s own website, and shows what it finds with a source on every detail.</p>
+    {% if total %}<p class="hero-stat"><strong>{{ "{:,}".format(total) }}</strong> businesses collected so far{% if today %}, <strong>{{ "{:,}".format(today) }}</strong> of them today{% endif %}.</p>{% endif %}
+    <form class="big-search" action="/search" role="search">
+      <label class="sr" for="q-home">Search</label>
+      <input id="q-home" name="q" type="search" placeholder="Try “cocoa exporters Côte d’Ivoire” or “solar installers Kenya”" autofocus>
+      <button class="btn primary">Search</button>
+    </form>
+  </div>
+</section>
+<section class="wrap" id="pages">
+  <h2 class="section-h">Data pages</h2>
+  {% if datasets %}
+  <div class="ds-grid">
+    {% for d in datasets %}
+    <a class="ds-card" href="/d/{{ d.slug }}">
+      <span class="ds-count">{{ d.n }}</span>
+      <span class="ds-count-label">businesses</span>
+      <h3>{{ d.title }}</h3>
+      <p>{{ d.summary }}</p>
+      <span class="ds-meta">{% if d.demo %}<span class="chip warn">Sample data</span>{% endif %}{% if d.built_at %}Updated {{ fmt_date(d.built_at) }}{% endif %}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty"><h3>No data pages yet</h3><p>Build one with <code>python -m sourcebook build datasets/food-packaging-ghana.json</code>, or load the sample with <code>python -m sourcebook demo</code>.</p></div>
+  {% endif %}
+</section>
+{% if recent %}
+<section class="wrap">
+  <h2 class="section-h">Recently found by search</h2>
+  <ul class="recent">{% for d in recent %}<li><a href="/d/{{ d.slug }}">{{ d.title }}</a><span class="muted">{{ d.n }}</span></li>{% endfor %}</ul>
+</section>
+{% endif %}
+<section class="wrap cta-band find-band">
+  <div><h2>Built something? Find the businesses that need it.</h2>
+  <p>Sourcebook notes what each business doesn’t have yet: a website, a site that works on phones, online ordering, WhatsApp, a map listing. Choose what you offer and see who lacks it, with the contacts they publish.</p></div>
+  <a class="btn primary" href="/opportunities">Find clients</a>
+</section>
+<section class="wrap cta-band">
+  <div><h2>Need a list nobody has made yet?</h2>
+  <p>Create a free account, describe the businesses (“solar installers”, “fish feed suppliers”), pick a country, and Sourcebook builds the page for you, with sources. Save the ones you want to contact to a shortlist.</p></div>
+  <a class="btn primary" href="{{ '/app/new' if user else '/signup' }}">{{ "Build a data page" if user else "Create an account" }}</a>
+</section>
+<section class="wrap how">
+  <h2 class="section-h">How a page is made</h2>
+  <ol class="steps">
+    <li><h3>Collect from open sources</h3><p>Places tagged on OpenStreetMap, plus a reviewed list of business websites.</p></li>
+    <li><h3>Read what each business publishes</h3><p>Its home, contact and about pages — respecting robots.txt — for products, phone, email, WhatsApp and Telegram.</p></li>
+    <li><h3>Describe from the facts only</h3><p>Short descriptions are written from those facts, with the source links kept beside them.</p></li>
+    <li><h3>Correct and export</h3><p>Anyone can suggest a correction; owners can ask for removal. Download any page as CSV or JSON.</p></li>
+  </ol>
+</section>
+{% endblock %}

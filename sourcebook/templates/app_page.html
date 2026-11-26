@@ -1,0 +1,106 @@
+{% extends "app_base.html" %}
+{% block title %}{{ d.title }}{% endblock %}
+{% block main %}
+<header class="app-head">
+  <div><p class="crumbs"><a href="/app/pages">My pages</a></p>
+    <h1>{{ d.title }}</h1>
+    <p class="meta-row"><span class="status s-{{ d.status }}" id="page-status">{{ STATUS_LABEL[d.status] }}</span>
+      <span><strong id="page-count">{{ n }}</strong> businesses</span>
+      <span>Last built {{ fmt_date(d.built_at) or "not yet" }}</span>
+      {% if owner %}<span>Owner: {{ owner.name or owner.email }}</span>{% endif %}</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn" href="/d/{{ d.slug }}">{{ "View public page" if d.status == "published" else "Preview page" }}</a>
+    <a class="btn" href="/app/pages/{{ d.slug }}/edit">Edit settings</a>
+  </div>
+</header>
+{% if d.status == "rejected" and d.review_note %}<div class="notice warn"><strong>Not approved:</strong> {{ d.review_note }} Edit the settings and rebuild, then send it for review again.</div>{% endif %}
+{% if d.status == "review" %}<div class="notice plain">An admin will check this page before it appears on the public site. You can preview and export it now.</div>{% endif %}
+<div class="two-col wide-left">
+  <section class="panel">
+    <div class="panel-head"><h2>Build</h2>
+      {% if job and job.status in ("queued", "running") %}
+      <form method="post" action="/app/pages/{{ d.slug }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn ghost small">Stop build</button></form>
+      {% else %}
+      <form method="post" action="/app/pages/{{ d.slug }}/build"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn primary small">{{ "Refresh data" if d.built_at else "Build now" }}</button></form>
+      {% endif %}
+    </div>
+    {% if job %}
+    <p class="job-line"><span class="status j-{{ job.status }}" id="job-status">{{ JOB_LABEL[job.status] }}</span> <span class="muted">started {{ fmt_time(job.started_at or job.created_at) }}</span></p>
+    <pre class="log" id="job-log" data-job="{{ job.id }}" data-live="{{ 1 if job.status in ('queued', 'running') else 0 }}" tabindex="0" aria-label="Build log">{{ job.log or "Waiting for a free worker…" }}</pre>
+    {% else %}<p class="muted">This page hasn't been built yet.</p>{% endif %}
+    {% if jobs|length > 1 %}
+    <details class="history"><summary>Earlier builds</summary><ul class="plain-list">
+      {% for j in jobs[1:] %}<li><span class="status j-{{ j.status }}">{{ JOB_LABEL[j.status] }}</span><span class="muted">{{ fmt_time(j.created_at) }}</span>{% set st = j.stats|fromjson if j.stats else {} %}{% if st.kept is defined %}<span class="right muted">{{ st.kept }} kept</span>{% endif %}</li>{% endfor %}
+    </ul></details>
+    {% endif %}
+  </section>
+  <div>
+    <section class="panel">
+      <h2>Settings</h2>
+      <dl class="defs">
+        <dt>Country</dt><dd>{{ definition.country_name or d.country }}</dd>
+        <dt>Keywords</dt><dd>{{ (definition.keywords or definition.relevance_keywords or [])|join(", ") or "—" }}</dd>
+        <dt>Products</dt><dd>{{ (definition.products or {}).keys()|list|join(", ") or "—" }}</dd>
+        <dt>Websites added</dt><dd>{{ (definition.seed_rows or [])|length }}{% if definition.seeds %} plus the curator list{% endif %}</dd>
+      </dl>
+    </section>
+    <section class="panel">
+      <h2>Share and export</h2>
+      <p class="muted">{% if corrections %}<a href="/app/corrections">{{ corrections }} correction{{ "s" if corrections != 1 }} to review</a>.{% else %}No corrections waiting.{% endif %}</p>
+      <p><a class="btn small" href="/d/{{ d.slug }}.csv">CSV</a> <a class="btn small" href="/d/{{ d.slug }}.json">JSON</a></p>
+      {% if d.status in ("draft", "rejected") and n %}
+      <form method="post" action="/app/pages/{{ d.slug }}/submit"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn primary">Send for review</button></form>
+      {% endif %}
+    </section>
+    {% if user.role == "admin" %}
+    <section class="panel admin-box">
+      <h2>Approval</h2>
+      <form method="post" class="form" id="approve-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="a-note">Note to the owner <span class="opt">shown if not approved</span></label>
+        <input id="a-note" name="note" maxlength="500" value="{{ d.review_note or '' }}">
+        <div class="inline">
+          {% if d.status != "published" %}<button class="btn primary" formaction="/app/pages/{{ d.slug }}/publish">Make public</button>
+          <button class="btn ghost" formaction="/app/pages/{{ d.slug }}/reject">Don't approve</button>
+          {% else %}<button class="btn ghost" formaction="/app/pages/{{ d.slug }}/unpublish">Take off the public site</button>{% endif %}
+        </div>
+      </form>
+    </section>
+    {% endif %}
+    <details class="panel danger">
+      <summary><h2>Delete this page</h2></summary>
+      <form method="post" action="/app/pages/{{ d.slug }}/delete" class="form"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="del-confirm">Type <strong>{{ d.title }}</strong> to delete the page and all its businesses.</label>
+        <input id="del-confirm" name="confirm" autocomplete="off">
+        <button class="btn danger-btn">Delete page</button>
+      </form>
+    </details>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const log = document.getElementById("job-log");
+  if (!log || log.dataset.live !== "1") return;
+  const status = document.getElementById("job-status"), pageStatus = document.getElementById("page-status"), count = document.getElementById("page-count");
+  const tick = async () => {
+    try {
+      const r = await fetch(`/app/jobs/${log.dataset.job}`, { headers: { accept: "application/json" } });
+      if (!r.ok) return setTimeout(tick, 5000);
+      const j = await r.json();
+      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+      log.textContent = j.log || "Waiting for a free worker…";
+      if (atBottom) log.scrollTop = log.scrollHeight;
+      status.textContent = j.label; status.className = `status j-${j.status}`;
+      pageStatus.textContent = j.page_status_label; pageStatus.className = `status s-${j.page_status}`;
+      count.textContent = j.count;
+      if (j.status === "queued" || j.status === "running") setTimeout(tick, 2000);
+      else setTimeout(() => location.reload(), 800);
+    } catch { setTimeout(tick, 5000); }
+  };
+  log.scrollTop = log.scrollHeight;
+  setTimeout(tick, 1500);
+})();
+</script>
+{% endblock %}

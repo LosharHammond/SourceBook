@@ -1,0 +1,32 @@
+{% extends "app_base.html" %}
+{% block title %}{{ lst.name }}{% endblock %}
+{% block main %}
+<header class="app-head">
+  <div><p class="crumbs"><a href="/app/lists">Shortlists</a></p><h1>{{ lst.name }}</h1><p class="muted">{{ items|length }} business{{ "es" if items|length != 1 }}</p></div>
+  <div class="head-actions">{% if items %}<a class="btn" href="/app/lists/{{ lst.id }}.csv">Download CSV</a>{% endif %}</div>
+</header>
+{% if items %}
+<table class="table">
+  <thead><tr><th scope="col">Business</th><th scope="col">Contacts published</th><th scope="col">Your note</th><th scope="col"><span class="sr">Remove</span></th></tr></thead>
+  <tbody>
+  {% for r in items %}
+  <tr>
+    <td><a class="name" href="/d/{{ r.dataset }}/{{ r.slug }}">{{ r.name }}</a><span class="sub">{{ r.city or "Town not listed" }}, from {{ names.get(r.dataset, r.dataset) }}</span></td>
+    <td class="contacts-cell">{% for ch in ["whatsapp", "phone", "email", "telegram"] %}{% for c in r.contacts.get(ch, [])[:1] %}{% set href = contact_href(ch, c.value) %}<span class="cline"><span class="ch ch-{{ ch }}">{{ CONTACT_LABEL[ch] }}</span>{% if href and not r.demo %}<a href="{{ href }}" rel="nofollow noopener" {% if href.startswith('http') %}target="_blank"{% endif %}>{{ c.value }}</a>{% else %}{{ c.value }}{% endif %}</span>{% endfor %}{% endfor %}</td>
+    <td><form method="post" action="/app/lists/{{ lst.id }}/note" class="note-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="entity" value="{{ r.id }}">
+      <label class="sr" for="note-{{ loop.index }}">Note for {{ r.name }}</label><input id="note-{{ loop.index }}" name="note" value="{{ r.note }}" maxlength="500" placeholder="Add a note"><button class="btn small ghost">Save</button></form></td>
+    <td><form method="post" action="/app/lists/{{ lst.id }}/remove"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="entity" value="{{ r.id }}"><button class="btn small ghost">Remove</button></form></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty"><h3>This shortlist is empty</h3><p>Open a business on any data page and choose <strong>Save</strong>.</p><a class="btn" href="/">Browse data pages</a></div>
+{% endif %}
+<div class="two-col">
+  <form method="post" action="/app/lists/{{ lst.id }}/rename" class="panel form"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="r-name">Rename</label><div class="inline"><input id="r-name" name="name" value="{{ lst.name }}" maxlength="80"><button class="btn">Rename</button></div></form>
+  <form method="post" action="/app/lists/{{ lst.id }}/delete" class="panel form" onsubmit="return confirm('Delete this shortlist? The businesses stay on their data pages.')"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Delete this shortlist</label><p class="hint">The businesses stay on their data pages.</p><div><button class="btn danger-btn">Delete shortlist</button></div></form>
+</div>
+{% endblock %}

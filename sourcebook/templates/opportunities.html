@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Find businesses that need what you offer{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block main %}
+<section class="ds-head">
+  <div class="wrap">
+    <h1>Find businesses that need what you offer</h1>
+    <p class="lede">Investor, supplier, distributor, recruiter, logistics firm, bank, certifier, builder or web designer: choose what you offer. Sourcebook lists businesses in every country that say they need it, or whose map listing and website show they don’t have it yet, with the contacts they publish.</p>
+    <form class="opp-form" method="get">
+      <div><label for="o-lacks">I offer</label>
+        <select id="o-lacks" name="lacks" required><option value="">Choose…</option>
+          {% for cat, items in GAP_GROUPS %}<optgroup label="{{ cat }}">{% for code, v in items %}<option value="{{ code }}" {% if code == lacks %}selected{% endif %}>{{ v[1] }}: {{ v[0]|lower }}</option>{% endfor %}</optgroup>{% endfor %}</select></div>
+      <div><label for="o-in">Country</label>
+        <select id="o-in" name="in"><option value="">All countries</option>{% for code in page_countries %}<option value="{{ code }}" {% if code == country %}selected{% endif %}>{{ country_name(code) }}</option>{% endfor %}</select></div>
+      <div><label for="o-kind">Kind of business <span class="opt">optional</span></label><input id="o-kind" name="kind" value="{{ kind }}" placeholder="e.g. packaging"></div>
+      <div><label for="o-ch">Reachable by</label>
+        <select id="o-ch" name="channel"><option value="">Any contact</option>{% for ch in ["whatsapp", "phone", "email"] %}<option value="{{ ch }}" {% if ch == channel %}selected{% endif %}>{{ CONTACT_LABEL[ch] }}</option>{% endfor %}</select></div>
+      <button class="btn primary">Show businesses</button>
+    </form>
+  </div>
+</section>
+<section class="wrap page">
+  {% if lacks %}
+    <div class="opp-head">
+      <p class="count">{{ "{:,}".format(total) }} business{{ "es" if total != 1 }}: {{ GAPS[lacks][0]|lower }}{% if total > results|length %}, showing the first {{ results|length }}{% endif %}</p>
+      {% if total %}<a class="btn" href="/opportunities.csv?{{ query }}">Download CSV</a>{% endif %}
+    </div>
+    {% if results %}
+    <ul class="opp-list">
+      {% for d, e in results %}
+      {% set g = (e.gaps|selectattr("code", "equalto", lacks)|list)[0] %}
+      <li class="opp">
+        <div class="opp-main">
+          <a class="name" href="/d/{{ d.slug }}/{{ e.slug }}">{{ e.name }}</a>
+          <span class="sub">{{ e.city or "Town not listed" }}, in {{ d.title }}</span>
+          <p class="gap-detail">{{ g.detail }} <span class="muted">Checked {{ fmt_date(g.observed_at) }}.</span></p>
+          {% if e.gaps|length > 1 %}<div class="chs">{% for o in e.gaps if o.code != lacks %}<span class="gap{{ ' need' if o.category == 'Stated needs' }}">{{ o.label }}</span>{% endfor %}</div>{% endif %}
+        </div>
+        <div class="opp-contact">
+          {% for ch in ["whatsapp", "phone", "email", "telegram"] %}{% for c in e.contacts.get(ch, [])[:1] %}{% set href = contact_href(ch, c.value) %}
+          <span class="cline"><span class="ch ch-{{ ch }}">{{ CONTACT_LABEL[ch] }}</span>{% if href and not e.demo %}<a href="{{ href }}" rel="nofollow noopener" {% if href.startswith('http') %}target="_blank"{% endif %}>{{ c.value }}</a>{% else %}{{ c.value }}{% endif %}</span>
+          {% endfor %}{% endfor %}
+          {% if not (e.contacts.get("whatsapp") or e.contacts.get("phone") or e.contacts.get("email") or e.contacts.get("telegram")) %}<span class="muted">No contacts published. See the profile for its address.</span>{% endif %}
+          {% if user %}
+          <form method="post" action="/app/lists/save" class="inline save-mini"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="entity" value="{{ e.id }}"><input type="hidden" name="next" value="/opportunities?{{ query }}">
+            <select name="list" aria-label="Shortlist">{% for l in lists %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}<option value="new">New shortlist</option></select>
+            <input type="hidden" name="new_name" value="Leads: {{ GAPS[lacks][0] }}"><button class="btn small">Save</button></form>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="fine">These findings come from automated checks of public pages, so a business may have something Sourcebook didn’t see. Be polite and specific when you get in touch, say where you found their details, and stop if they ask you to.</p>
+    {% else %}
+    <div class="empty"><h3>No businesses found with that gap yet</h3><p>Try another country or kind of business, or <a href="/search">search for a kind of business</a> to collect more.</p></div>
+    {% endif %}
+  {% else %}
+    {% for cat, items in GAP_GROUPS %}
+    <h2 class="section-h small">{{ cat }}</h2>
+    <div class="opp-intro">
+      {% for code, v in items %}<a class="opp-tile{{ ' need' if cat == 'Stated needs' }}" href="/opportunities?lacks={{ code }}"><strong>{{ v[1] }}</strong><span>{{ v[0] }}</span>{% if opp_counts.get(code) %}<span class="opp-n">{{ "{:,}".format(opp_counts[code]) }} businesses</span>{% endif %}</a>{% endfor %}
+    </div>
+    {% endfor %}
+  {% endif %}
+</section>
+{% endblock %}

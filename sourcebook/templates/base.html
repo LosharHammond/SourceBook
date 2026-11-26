@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Sourcebook{% endblock %} · Sourcebook</title>
+<meta name="description" content="{% block description %}Public, source-linked data pages about businesses — every fact links to where it was published.{% endblock %}">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/mark.svg" type="image/svg+xml">
+{% block head %}{% endblock %}
+</head>
+<body>
+{% from "_apps.html" import app_menu %}
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="/"><img src="/static/mark.svg" alt="" width="26" height="26"> Sourcebook</a>
+    <form class="top-search" action="/search" role="search">
+      <label class="sr" for="q-top">Search</label>
+      <input id="q-top" name="q" type="search" placeholder="Search businesses, products, towns" value="{{ q or '' }}">
+    </form>
+    <nav class="top-nav"><a href="/opportunities">Find clients</a><a href="/#pages">Data pages</a><a href="/api/datasets">API</a>
+      {% if user %}<a class="btn small primary" href="/app">Workspace</a>{% else %}<a href="/signin">Sign in</a><a class="btn small primary" href="/signup">Create account</a>{% endif %}{{ app_menu() }}</nav>
+  </div>
+</header>
+<main id="main">{% include "_flash.html" %}{% block main %}{% endblock %}</main>
+{% block scripts %}{% endblock %}
+<footer class="foot">
+  <div class="wrap foot-in">
+    <p><strong>Every fact on Sourcebook links to where it was published.</strong> Contacts are only those a business publishes itself. Businesses can correct or remove their listing from their profile page.</p>
+    <p class="muted">Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL). © {{ year }} Sourcebook.</p>
+  </div>
+</footer>
+</body>
+</html>

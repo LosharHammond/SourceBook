@@ -1,0 +1,27 @@
+{% extends "app_base.html" %}
+{% block title %}Account{% endblock %}
+{% block main %}
+<header class="app-head"><div><h1>Account</h1><p class="muted">{{ user.email }}, {{ "admin" if user.role == "admin" else "member" }} since {{ fmt_date(user.created_at) }}</p></div></header>
+<div class="two-col">
+  <form method="post" class="panel form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="profile">
+    <h2>Your details</h2>
+    <label for="p-name">Name</label><input id="p-name" name="name" value="{{ user.name }}" maxlength="80" autocomplete="name">
+    <div><button class="btn primary">Save</button></div>
+  </form>
+  <form method="post" class="panel form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="password">
+    <h2>{{ "Change password" if has_password else "Add a password" }}</h2>
+    {% if identities %}<p class="hint">You sign in with {% for i in identities %}{{ "Google" if i.provider == "google" else "your Kenuxa Account" }} ({{ i.email }}){{ ", " if not loop.last }}{% endfor %}.{% if not has_password %} A password is optional.{% endif %}</p>{% endif %}
+    {% if has_password %}<label for="p-cur">Current password</label><input id="p-cur" name="current" type="password" autocomplete="current-password" required>{% endif %}
+    <label for="p-new">New password <span class="opt">at least 10 characters</span></label><input id="p-new" name="new" type="password" minlength="10" autocomplete="new-password" required>
+    <div><button class="btn primary">{{ "Change password" if has_password else "Add password" }}</button></div>
+  </form>
+</div>
+<details class="panel danger">
+  <summary><h2>Delete your account</h2></summary>
+  <form method="post" class="form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="delete">
+    <p class="hint">Your shortlists are deleted. Pages you made stay on Sourcebook without an owner.</p>
+    {% if has_password %}<label for="p-del">Password</label><input id="p-del" name="current" type="password" autocomplete="current-password" required>{% else %}<input type="hidden" name="current" value="">{% endif %}
+    <div><button class="btn danger-btn">Delete my account</button></div>
+  </form>
+</details>
+{% endblock %}

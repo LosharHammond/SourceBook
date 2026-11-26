@@ -1,0 +1,28 @@
+# Deploy on Render: render.com → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: kenuxa-sourcebook
+    runtime: python
+    plan: starter            # a persistent disk needs a paid instance (see README)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m sourcebook serve --host 0.0.0.0 --build-if-empty
+    healthCheckPath: /
+    envVars:
+      - key: SOURCEBOOK_DB
+        value: /var/data/sourcebook.db
+      - key: SOURCEBOOK_SECRET          # signs sign-in cookies
+        generateValue: true
+      - key: SOURCEBOOK_ADMIN_EMAILS    # your email: that account becomes admin when you sign up
+        sync: false
+      - key: SOURCEBOOK_PUBLIC_URL      # the site's address; Kenuxa sign-in needs it to match kenuxa_apps
+        value: https://kenuxa-sourcebook.onrender.com
+      - key: GOOGLE_CLIENT_ID           # "Continue with Google" (optional): Google Cloud > Credentials > OAuth client (Web)
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
