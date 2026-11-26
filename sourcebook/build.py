@@ -179,9 +179,15 @@ async def build(definition: Path | dict[str, Any], db: DB, *, websites: bool = T
     sem = asyncio.Semaphore(int(os.environ.get("SOURCEBOOK_SITE_CONCURRENCY", "6")))
     done = 0
 
+    resume_after = time.time() - 6 * 3600 if d.get("_resume") else None
+    fresh = {e["slug"] for e in db.entities(slug) if (e.get("updated_at") or 0) > resume_after} if resume_after else set()
+
     async def one(c: dict[str, Any]) -> None:
         nonlocal done
         if stop and stop():
+            return
+        if fresh and slugify(c["name"]) in fresh:      # a paused build: this one was checked a moment ago
+            stats["kept"] += 1
             return
         site = None
         if websites and c.get("website"):

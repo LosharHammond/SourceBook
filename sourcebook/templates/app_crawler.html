@@ -84,7 +84,7 @@
 </div>
 {% if running %}
 <section class="panel"><div class="panel-head"><h2>Working now</h2></div>
-  <ul class="plain-list">{% for j in running %}<li><a href="/app/pages/{{ j.dataset }}">{{ j.title or j.dataset }}</a><span class="status j-{{ j.status }}">{{ JOB_LABEL[j.status] }}</span><span class="muted right">{{ {"discover": "from a search", "crawl": "scheduled", "refresh": "refresh", "build": "workspace"}.get(j.kind, j.kind) }}</span></li>{% endfor %}</ul>
+  <ul class="plain-list">{% for j in running %}<li><a href="/app/pages/{{ j.dataset }}">{{ j.title or j.dataset }}</a><span class="status j-{{ j.status }}">{{ JOB_LABEL[j.status] }}</span><span class="muted right">{{ {"discover": "from a search", "crawl": "scheduled", "refresh": "refresh", "build": "workspace", "continue": "finishing a search"}.get(j.kind, j.kind) }}</span></li>{% endfor %}</ul>
 </section>
 {% endif %}
 {% endblock %}

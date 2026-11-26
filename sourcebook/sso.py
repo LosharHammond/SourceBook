@@ -142,7 +142,7 @@ _apps_cache: dict[str, Any] = {"at": 0.0, "apps": []}
 FALLBACK_APPS = [
     {"client_id": "accounts", "name": "Kenuxa Accounts", "home_url": "https://kenuxa-accounts.vercel.app"},
     {"client_id": "bask", "name": "Kenuxa Bask", "home_url": "https://kenuxabask.vercel.app"},
-    {"client_id": "heimdall", "name": "Kenuxa Heimdall", "home_url": "https://kenuxa-heimdall.onrender.com"},
+    {"client_id": "heimdall", "name": "Kenuxa Heimdall", "home_url": "https://kenuxa-heimdall.vercel.app"},
     {"client_id": "sourcebook", "name": "Kenuxa Sourcebook", "home_url": "/"},
 ]
 

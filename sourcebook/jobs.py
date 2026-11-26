@@ -41,7 +41,9 @@ class Runner:
                 continue
             await self.run(job)
 
-    async def run(self, job: dict) -> None:
+    async def run(self, job: dict, deadline: float | None = None) -> None:
+        """Runs one job. With a deadline (hosts that limit how long a request may run), the build stops in time, keeps what it
+        checked and queues a follow-up job that the scheduled crawler finishes."""
         jid, slug = job["id"], job["dataset"]
         log = lambda line: self.db.job_log(jid, line)  # noqa: E731
         d = definition_for(self.db, slug)
@@ -53,10 +55,17 @@ class Runner:
         if was in ("draft", "rejected", "building", "review"):
             self.db.set_status(slug, "building")
         log(f"Building “{d['title']}”")
-        stopped = lambda: bool((self.db.job(jid) or {}).get("cancel"))  # noqa: E731
+        out_of_time = lambda: deadline is not None and time.time() > deadline  # noqa: E731
+        stopped = lambda: out_of_time() or bool((self.db.job(jid) or {}).get("cancel"))  # noqa: E731
         try:
-            stats = await build(d, self.db, log=log, stop=stopped)
+            stats = await build({**d, "_resume": job.get("kind") == "continue"}, self.db, log=log, stop=stopped)
         except Cancelled:
+            if out_of_time() and not (self.db.job(jid) or {}).get("cancel"):
+                log("Paused here to stay within the time limit. The scheduled crawler checks the rest within the hour.")
+                self.db.finish_job(jid, "done", {"paused": 1})
+                self.db.add_job(slug, job.get("user_id"), "continue", priority=1)
+                self._after(slug, was, job)
+                return
             self.db.finish_job(jid, "cancelled")
             self._after(slug, was, job)
             return
@@ -84,11 +93,41 @@ class Runner:
     async def _refresher(self) -> None:
         while True:
             await asyncio.sleep(3600)
-            cutoff = time.time() - self.refresh_days * 86400
-            busy = {j["dataset"] for j in self.db.jobs(status=("queued", "running"), limit=500)}
-            for d in self.db.datasets():
-                if not d["demo"] and (d["built_at"] or 0) < cutoff and d["slug"] not in busy:
-                    self.db.add_job(d["slug"], None, "refresh")
+            self.queue_refreshes()
+
+    def queue_refreshes(self) -> None:
+        cutoff = time.time() - self.refresh_days * 86400
+        busy = {j["dataset"] for j in self.db.jobs(status=("queued", "running"), limit=500)}
+        for d in self.db.datasets():
+            if not d["demo"] and (d["built_at"] or 0) < cutoff and d["slug"] not in busy:
+                self.db.add_job(d["slug"], None, "refresh")
+
+    async def run_for(self, seconds: float) -> dict:
+        """One scheduled crawler run (GitHub Actions, cron): queue this hour's crawl, then work through the queue until it is
+        empty or the time is up. Jobs left running by a host that stopped them are picked up again."""
+        from .discover import crawl_tick
+        end = time.time() + seconds
+        requeued = self.db.requeue_interrupted(older_than=900)
+        queued = crawl_tick(self.db)
+        self.db.set_meta("crawler_last_tick", str(time.time()))
+        if queued:
+            self.db.set_meta("crawler_last_queued", ", ".join(queued))
+        if self.refresh_days > 0:
+            self.queue_refreshes()
+        done = 0
+
+        async def worker() -> None:
+            nonlocal done
+            while time.time() < end - 30:
+                job = self.db.claim_job()
+                if not job:
+                    return
+                await self.run(job, deadline=end - 30)
+                done += 1
+
+        await asyncio.gather(*(worker() for _ in range(self.workers)))
+        return {"requeued": requeued, "queued": len(queued), "jobs_run": done,
+                "still_queued": len(self.db.jobs(status=("queued",), limit=500))}
 
     async def _crawler(self) -> None:
         from .discover import crawl_tick

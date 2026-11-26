@@ -1,4 +1,4 @@
-"""python -m sourcebook  serve | build <definition.json> | demo | refresh-all | make-admin <email>"""
+"""python -m sourcebook  serve | build <definition.json> | demo | refresh-all | make-admin <email> | crawl [--minutes N]"""
 
 from __future__ import annotations
 
@@ -29,6 +29,9 @@ def main() -> None:
     d = sub.add_parser("demo", help="load clearly-labelled fictional sample data to preview the design")
     d.add_argument("definition", nargs="?", default=str(DEFAULT_DEF))
     sub.add_parser("refresh-all", help="rebuild every definition in datasets/")
+    cr = sub.add_parser("crawl", help="one scheduled crawler run (for GitHub Actions or cron): queue this hour's work and run it")
+    cr.add_argument("--minutes", type=float, default=float(os.environ.get("SOURCEBOOK_CRAWL_MINUTES", "50")))
+    cr.add_argument("--workers", type=int, default=int(os.environ.get("SOURCEBOOK_WORKERS", "3")))
     ma = sub.add_parser("make-admin", help="give an existing account admin rights")
     ma.add_argument("email")
     a = p.parse_args()
@@ -47,6 +50,12 @@ def main() -> None:
     elif a.cmd == "demo":
         load_demo(db, Path(a.definition))
         print("Sample data loaded. Run:  python -m sourcebook serve")
+    elif a.cmd == "crawl":
+        from .jobs import Runner
+        result = asyncio.run(Runner(db, workers=a.workers).run_for(a.minutes * 60))
+        print(f"Crawler run: {result['jobs_run']} jobs run, {result['queued']} queued this hour, "
+              f"{result['requeued']} picked up again, {result['still_queued']} still waiting. "
+              f"{db.entity_count()} businesses in total.")
     elif a.cmd == "make-admin":
         user = db.user(email=a.email)
         if not user:

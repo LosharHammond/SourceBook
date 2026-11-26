@@ -84,8 +84,14 @@ def site_url(request: Request) -> str:
     return os.environ.get("SOURCEBOOK_PUBLIC_URL") or str(request.base_url).rstrip("/")
 
 
-def create_app(db: DB | None = None, run_jobs: bool = True) -> Starlette:
+def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
     db = db or DB()
+    # Hosts with no always-on process (Vercel): a search runs its own job inside a request (/search/run), within a time limit,
+    # and the scheduled crawler (python -m sourcebook crawl, e.g. GitHub Actions) does everything else.
+    inline = os.environ.get("SOURCEBOOK_INLINE_JOBS") == "1"
+    run_seconds = float(os.environ.get("SOURCEBOOK_RUN_SECONDS", "240"))
+    if run_jobs is None:
+        run_jobs = not inline
     env = Environment(loader=FileSystemLoader(HERE / "templates"), autoescape=select_autoescape(["html", "xml"]))
     env.globals.update(fmt_date=fmt_date, fmt_time=fmt_time, contact_href=contact_href, CONTACT_LABEL=CONTACT_LABEL,
                        FIELD_LABEL=FIELD_LABEL, SOURCE_LABEL=SOURCE_LABEL, STATUS_LABEL=STATUS_LABEL, JOB_LABEL=JOB_LABEL,
@@ -259,7 +265,9 @@ def create_app(db: DB | None = None, run_jobs: bool = True) -> Starlette:
             progress = found[-1] if found else ("Waiting for a free worker…" if last["status"] == "queued" else "Starting…")
         rows = ranked(slug, lens)
         tabs = [{"key": k, "label": lbl, "count": sum(1 for r in rows if test(r))} for k, lbl, test in leadmod.TABS]
+        run = f"/search/run/{slug}" if inline and active and active[0]["status"] == "queued" else None
         return JSONResponse({
+            "run": run,
             "status": "running" if active else (last["status"] if last else "idle"),
             "queued": bool(active and active[0]["status"] == "queued"), "progress": progress, "count": len(rows),
             "checked": fmt_time(d["built_at"]), "url": f"/d/{slug}", "lens": lens, "lens_label": leadmod.LENSES[lens][0], "tabs": tabs,
@@ -272,6 +280,18 @@ def create_app(db: DB | None = None, run_jobs: bool = True) -> Starlette:
                 "website": r["website"] or "", "demo": bool(r["demo"]),
             } for r in rows[:200]],
         })
+
+    async def search_run(request: Request) -> Response:
+        """Inline mode: the search page asks for its queued job to run here. Only an already-queued job for this page can run,
+        one at a time, and it stops before the host's time limit."""
+        if not inline:
+            return JSONResponse({"ran": False}, status_code=404)
+        job = db.claim_job(dataset=request.path_params["slug"])
+        if not job:
+            return JSONResponse({"ran": False})
+        import time as _t
+        await runner.run(job, deadline=_t.time() + run_seconds)
+        return JSONResponse({"ran": True})
 
     async def search_export(request: Request) -> Response:
         slug = request.path_params["slug"]
@@ -887,7 +907,7 @@ def create_app(db: DB | None = None, run_jobs: bool = True) -> Starlette:
             await runner.stop()
 
     routes = [
-        Route("/", home), Route("/search", search), Route("/search/live/{slug}", search_live), Route("/search/export/{slug}.csv", search_export),
+        Route("/", home), Route("/search", search), Route("/search/live/{slug}", search_live), Route("/search/run/{slug}", search_run, methods=["POST"]), Route("/search/export/{slug}.csv", search_export),
         Route("/opportunities", opportunities), Route("/opportunities.csv", opportunities_csv), Route("/api/datasets", api_datasets),
         Route("/signin", signin, methods=["GET", "POST"]), Route("/signup", signup, methods=["GET", "POST"]),
         Route("/signout", signout, methods=["POST"]),

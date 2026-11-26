@@ -110,7 +110,7 @@ top right, opens the other Kenuxa apps (Accounts, Bask, Heimdall).
 
 - **Kenuxa Account** works out of the box with the public values every Kenuxa app shares. Register Sourcebook once by running
   `KENUXA ACCOUNTS/supabase/migrations/0004_heimdall_sourcebook.sql` in the Supabase SQL editor. Its return addresses are
-  `https://kenuxa-sourcebook.onrender.com/auth/callback` and `http://127.0.0.1:8100/auth/callback`; if Sourcebook lives
+  `https://kenuxa-sourcebook.vercel.app/auth/callback` and `http://127.0.0.1:8100/auth/callback`; if Sourcebook lives
   elsewhere, change them there. `KENUXA_SIGNIN=0` hides the button.
 - **Google**: in Google Cloud Console > APIs & Services > Credentials, create an OAuth client ID (Web application) with the
   redirect URI `<your address>/auth/callback`, then set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
@@ -193,16 +193,17 @@ Every profile has a **Fix or remove this listing** form. What people send appear
 - `/api/datasets`: every data page, with download links.
 - `/sitemap.xml`: every page is server-rendered so search engines can index it. Data pages carry schema.org `Dataset` markup.
 
-## Put it online (Render)
+## Put it online for free (Vercel + Supabase + GitHub Actions)
 
-1. Push this folder to GitHub.
-2. In Render, choose **New → Blueprint** and pick the repo. `render.yaml` sets up the web service, a 1 GB disk for the database, and a generated cookie secret.
-3. When Render asks, fill in:
-   - `SOURCEBOOK_ADMIN_EMAILS`: your email;
-   - `SOURCEBOOK_PUBLIC_URL`: your site address, for example `https://sourcebook.onrender.com`. Export links and the sitemap use it, and sign-in cookies become HTTPS-only.
-4. Open the site and sign up with that email to become the admin. The first start builds the Ghana page in the background.
+- **Website and searches: Vercel.** A search runs in its own request for up to 4 minutes; anything still unchecked then is
+  finished by the next crawler run.
+- **Data: Supabase.** Sourcebook's tables live in their own `sourcebook` schema, out of reach of Supabase's public REST API.
+- **Hourly crawler: GitHub Actions** (`python -m sourcebook crawl`), free in a public repository.
 
-Accounts, pages and shortlists live in the database on that disk. The free plan has no disk, so everything would be lost on every restart. Use the Starter plan or higher.
+Step by step: [docs/DEPLOY-FREE.md](docs/DEPLOY-FREE.md). On your own computer nothing changes: with no `DATABASE_URL`,
+Sourcebook keeps using the `sourcebook.db` file and runs its crawler in the background.
+
+`render.yaml` is kept for Render's paid plans only. The free plan has no disk and sleeps after 15 minutes.
 
 ## Privacy
 
@@ -213,6 +214,9 @@ Sourcebook lists businesses, not people. It only shows contacts that a business 
 ```
 pip install pytest && python -m pytest -q
 ```
+
+To run the same tests on PostgreSQL: `SOURCEBOOK_TEST_PG=postgres://user:password@host:5432/db python -m pytest -q`
+(each test uses its own new schema).
 
 The tests use canned OpenStreetMap and website responses, so they don't need the internet. They cover:
 - the collectors;
@@ -229,7 +233,8 @@ The tests use canned OpenStreetMap and website responses, so they don't need the
 - gap checks;
 - searches that collect live;
 - Find clients;
-- crawler rounds and the Crawler screen.
+- crawler rounds and the Crawler screen;
+- the Vercel set-up: searches running in a request with a time limit, pausing, and the crawler finishing the rest.
 
 ## Next
 

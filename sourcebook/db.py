@@ -1,11 +1,13 @@
-"""SQLite storage. Every fact about an entity is stored with where it came from and when it was seen.
+"""Storage: SQLite on your own computer, PostgreSQL (e.g. Supabase) when DATABASE_URL is set. Every fact about an entity is stored with where it came from and when it was seen.
 
 Tables
   datasets     one public data page (e.g. "Food packaging suppliers in Ghana")
   entities     a business/organisation within a dataset
   facts        field/value pairs with source_url, source_type and observed_at (many per field allowed)
   corrections  suggestions and removal requests from the public, reviewed before they change anything
-  search       FTS5 index over entities
+  search       full-text index over entities (FTS5 in SQLite, tsvector in PostgreSQL)
+
+The SQL below is written for SQLite; _PgConn translates the few differences (placeholders, new-row ids, instr) for PostgreSQL.
 """
 
 from __future__ import annotations
@@ -112,17 +114,121 @@ def default_path() -> Path:
 STOP = {"in", "the", "of", "and", "for", "a", "an", "to", "near", "suppliers", "supplier", "companies", "company", "list", "who"}
 
 
+SCHEMA_VERSION = "3"   # raise when SCHEMA or MIGRATIONS change, so PostgreSQL re-applies them once
+
+
+def pg_schema_sql() -> str:
+    """SCHEMA in PostgreSQL types, with every MIGRATIONS column, and a tsvector table in place of FTS5."""
+    sql = SCHEMA.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY").replace(" REAL", " DOUBLE PRECISION")
+    sql = re.sub(r"CREATE VIRTUAL TABLE[^\n]*\n", "CREATE TABLE IF NOT EXISTS search (entity TEXT PRIMARY KEY, dataset TEXT, doc TSVECTOR);\n"
+                 "CREATE INDEX IF NOT EXISTS search_doc ON search USING GIN (doc);\nCREATE INDEX IF NOT EXISTS search_dataset ON search(dataset);\n", sql)
+    for table, col, decl in MIGRATIONS:
+        sql += f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {decl.replace('REAL', 'DOUBLE PRECISION')};\n"
+    sql += "CREATE INDEX IF NOT EXISTS entities_dataset ON entities(dataset);\nCREATE INDEX IF NOT EXISTS entities_created ON entities(created_at);\n"
+    return sql
+
+
+# tables whose rows get a new id from the database (cursor.lastrowid)
+_SERIAL = {"facts", "corrections", "users", "jobs", "lists", "crawl_targets", "searches", "monitors"}
+_pools: dict[str, Any] = {}
+
+
+class _Row(dict):
+    """A result row readable both by column name and by position, like sqlite3.Row."""
+    def __init__(self, names: list[str], values: tuple) -> None:
+        super().__init__(zip(names, values))
+        self._values = values
+
+    def __getitem__(self, k: Any) -> Any:
+        return self._values[k] if isinstance(k, int) else dict.__getitem__(self, k)
+
+
+class _Result:
+    def __init__(self, rows: list[_Row], rowcount: int, lastrowid: int | None) -> None:
+        self.rows, self.rowcount, self.lastrowid = rows, rowcount, lastrowid
+
+    def fetchone(self) -> _Row | None:
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self) -> list[_Row]:
+        return self.rows
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class _PgConn:
+    """Runs Sourcebook's SQLite-flavoured SQL on PostgreSQL."""
+    def __init__(self, raw: Any) -> None:
+        self.raw = raw
+
+    def execute(self, sql: str, args: Any = ()) -> _Result:
+        sql = re.sub(r"\binstr\(", "strpos(", sql)
+        lastid = False
+        m = re.match(r"\s*INSERT INTO (\w+)", sql)
+        if m and m.group(1) in _SERIAL and "RETURNING" not in sql.upper():
+            sql, lastid = sql.rstrip().rstrip(";") + " RETURNING id", True
+        params = list(args) if args else None
+        if params is not None:
+            sql = sql.replace("%", "%%").replace("?", "%s")
+        cur = self.raw.execute(sql, params)
+        rows: list[_Row] = []
+        if cur.description:
+            names = [d.name for d in cur.description]
+            rows = [_Row(names, tuple(v)) for v in cur.fetchall()]
+        return _Result(rows, cur.rowcount, (rows[0][0] if rows else None) if lastid else None)
+
+    def executescript(self, sql: str) -> None:
+        self.raw.execute(sql)
+
+
 class DB:
-    def __init__(self, path: Path | str | None = None) -> None:
-        self.path = str(path or default_path())
+    def __init__(self, path: Path | str | None = None, url: str | None = None) -> None:
+        self.url = url if url is not None else (os.environ.get("DATABASE_URL") if path is None else None)
+        self.pg = bool(self.url)
+        self.path = "" if self.pg else str(path or default_path())
+        if self.pg:
+            self._pg_setup()
+            return
         with self.conn() as c:
             c.executescript(SCHEMA)
             for table, col, decl in MIGRATIONS:
                 if col not in [r[1] for r in c.execute(f"PRAGMA table_info({table})")]:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
+    # ------------------------------------------------------------------ PostgreSQL
+    def _pg_setup(self) -> None:
+        from psycopg_pool import ConnectionPool
+        schema = os.environ.get("DATABASE_SCHEMA", "sourcebook")
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,40}", schema):
+            raise ValueError("DATABASE_SCHEMA may only use a-z, 0-9 and _")
+
+        def configure(conn: Any) -> None:
+            # Supabase publishes the public schema through its REST API, so Sourcebook's tables live in their own schema.
+            conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"; SET search_path TO "{schema}", public; SET client_encoding TO \'UTF8\'')
+            conn.commit()
+
+        key = f"{self.url}|{schema}"
+        if key not in _pools:
+            _pools[key] = ConnectionPool(self.url, min_size=0, max_size=int(os.environ.get("DATABASE_POOL_MAX", "3")),
+                                         configure=configure, max_idle=120, timeout=30, open=True,
+                                         kwargs={"prepare_threshold": None, "connect_timeout": 10})
+        self._pool = _pools[key]
+        with self.conn() as c:
+            c.execute("SELECT pg_advisory_xact_lock(4207)")
+            c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+            r = c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+            if not r or r[0] != SCHEMA_VERSION:
+                c.executescript(pg_schema_sql())
+                c.execute("INSERT INTO meta(key, value) VALUES('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                          (SCHEMA_VERSION,))
+
     @contextmanager
-    def conn(self) -> Iterator[sqlite3.Connection]:
+    def conn(self) -> Iterator[Any]:
+        if self.pg:
+            with self._pool.connection() as raw:   # commits on success, rolls back on error
+                yield _PgConn(raw)
+            return
         c = sqlite3.connect(self.path, timeout=30)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA foreign_keys = ON")
@@ -148,7 +254,7 @@ class DB:
         if owner is not None:
             where.append("d.owner=?"); args.append(owner)
         sql = ("SELECT d.*, (SELECT COUNT(*) FROM entities e WHERE e.dataset=d.slug AND e.hidden=0) AS n FROM datasets d"
-               + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY d.title COLLATE NOCASE")
+               + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY lower(d.title)")
         with self.conn() as c:
             return [dict(r) for r in c.execute(sql, args).fetchall()]
 
@@ -231,13 +337,17 @@ class DB:
 
     def entities(self, dataset: str) -> list[dict[str, Any]]:
         with self.conn() as c:
-            rows = c.execute("SELECT * FROM entities WHERE dataset=? AND hidden=0 ORDER BY name COLLATE NOCASE", (dataset,)).fetchall()
-        return [self._entity(dict(r)) for r in rows]
+            rows = c.execute("SELECT * FROM entities WHERE dataset=? AND hidden=0 ORDER BY lower(name)", (dataset,)).fetchall()
+            by: dict[str, list[dict[str, Any]]] = {}
+            for f in c.execute("""SELECT f.* FROM facts f JOIN entities e ON e.id=f.entity WHERE e.dataset=? AND e.hidden=0
+                                  ORDER BY f.field, f.observed_at DESC""", (dataset,)).fetchall():
+                by.setdefault(f["entity"], []).append(dict(f))
+        return [self._entity(dict(r), by.get(r["id"], [])) for r in rows]
 
-    def _entity(self, e: dict[str, Any]) -> dict[str, Any]:
+    def _entity(self, e: dict[str, Any], facts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         e["products"] = json.loads(e.get("products") or "[]")
         e["description_sources"] = json.loads(e.get("description_sources") or "[]")
-        facts = self.facts(e["id"])
+        facts = self.facts(e["id"]) if facts is None else facts
         e["facts"] = facts
         contacts: dict[str, list[dict[str, Any]]] = {}
         for f in facts:
@@ -276,13 +386,29 @@ class DB:
         with self.conn() as c:
             c.execute("DELETE FROM search WHERE dataset=?", (dataset,))
             for r in c.execute("SELECT id, name, city, products, description FROM entities WHERE dataset=? AND hidden=0", (dataset,)).fetchall():
-                c.execute("INSERT INTO search(entity, dataset, name, city, products, description) VALUES(?,?,?,?,?,?)",
-                          (r["id"], dataset, r["name"], r["city"], " ".join(json.loads(r["products"] or "[]")), r["description"]))
+                products = " ".join(json.loads(r["products"] or "[]"))
+                if self.pg:
+                    c.execute("""INSERT INTO search(entity, dataset, doc) VALUES(?, ?, setweight(to_tsvector('simple', ?::text), 'A')
+                                 || setweight(to_tsvector('simple', ?::text || ' ' || ?::text), 'B') || to_tsvector('simple', ?::text))
+                                 ON CONFLICT(entity) DO UPDATE SET dataset=excluded.dataset, doc=excluded.doc""",
+                              (r["id"], dataset, r["name"], r["city"] or "", products, r["description"] or ""))
+                else:
+                    c.execute("INSERT INTO search(entity, dataset, name, city, products, description) VALUES(?,?,?,?,?,?)",
+                              (r["id"], dataset, r["name"], r["city"], products, r["description"]))
 
     def search(self, query: str, limit: int = 50, published_only: bool = True) -> list[dict[str, Any]]:
         terms = [t for t in re.findall(r"[\w']+", query.lower()) if len(t) > 1 and t not in STOP]
         if not terms:
             return []
+        if self.pg:
+            tsq = " | ".join(f"{t.replace(chr(39), '')}:*" for t in terms if t.replace(chr(39), ""))
+            with self.conn() as c:
+                rows = c.execute("""SELECT s.entity, s.dataset, e.slug, e.name, e.city, e.products, e.description, d.status AS dataset_status,
+                                    -ts_rank(s.doc, to_tsquery('simple', ?::text)) AS rank
+                                    FROM search s JOIN entities e ON e.id = s.entity JOIN datasets d ON d.slug = s.dataset
+                                    WHERE s.doc @@ to_tsquery('simple', ?::text) AND (d.status IN ('published', 'discovered') OR ?=0)
+                                    ORDER BY rank LIMIT ?""", (tsq, tsq, int(published_only), limit)).fetchall()
+            return [{**dict(r), "products": json.loads(r["products"] or "[]")} for r in rows]
         fts = " OR ".join(f'"{t}"*' for t in terms)
         with self.conn() as c:
             rows = c.execute("""SELECT s.entity, s.dataset, e.slug, e.name, e.city, e.products, e.description, d.status AS dataset_status, bm25(search) AS rank
@@ -363,7 +489,7 @@ class DB:
 
     def link_identity(self, user_id: int, provider: str, subject: str, email: str) -> None:
         with self.conn() as c:
-            c.execute("INSERT OR IGNORE INTO identities(provider, subject, user_id, email, created_at) VALUES(?,?,?,?,?)",
+            c.execute("INSERT INTO identities(provider, subject, user_id, email, created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING",
                       (provider, subject, user_id, email, time.time()))
 
     def identities(self, user_id: int) -> list[dict[str, Any]]:
@@ -418,9 +544,12 @@ class DB:
         with self.conn() as c:
             return [dict(r) for r in c.execute(sql, (*args, limit)).fetchall()]
 
-    def claim_job(self) -> dict[str, Any] | None:
+    def claim_job(self, dataset: str | None = None) -> dict[str, Any] | None:
         with self.conn() as c:
-            r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY priority, id LIMIT 1").fetchone()
+            if dataset:
+                r = c.execute("SELECT * FROM jobs WHERE status='queued' AND dataset=? ORDER BY priority, id LIMIT 1", (dataset,)).fetchone()
+            else:
+                r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY priority, id LIMIT 1").fetchone()
             if not r:
                 return None
             n = c.execute("UPDATE jobs SET status='running', started_at=? WHERE id=? AND status='queued'", (time.time(), r["id"])).rowcount
@@ -439,10 +568,15 @@ class DB:
             c.execute("UPDATE jobs SET cancel=1 WHERE id=? AND status='running'", (jid,))
             c.execute("UPDATE jobs SET status='cancelled', finished_at=? WHERE id=? AND status='queued'", (time.time(), jid))
 
-    def requeue_interrupted(self) -> int:
+    def requeue_interrupted(self, older_than: float | None = None) -> int:
+        """Jobs marked running when nothing is running them: all of them at start-up, or (older_than) ones started that many
+        seconds ago, which a host with a time limit stopped."""
         with self.conn() as c:
-            return c.execute("UPDATE jobs SET status='queued', log = log || 'Restarted after the server stopped.\n' "
-                             "WHERE status='running'").rowcount
+            if older_than is None:
+                return c.execute("UPDATE jobs SET status='queued', log = log || 'Restarted after the server stopped.\n' "
+                                 "WHERE status='running'").rowcount
+            return c.execute("UPDATE jobs SET status='queued', log = log || 'Picked up again by the crawler.\n' "
+                             "WHERE status='running' AND started_at < ?", (time.time() - older_than,)).rowcount
 
     def jobs_today(self, user_id: int) -> int:
         with self.conn() as c:
@@ -474,7 +608,7 @@ class DB:
 
     def add_to_list(self, lid: int, entity: str, note: str = "") -> None:
         with self.conn() as c:
-            c.execute("INSERT INTO list_items(list_id, entity, note, added_at) VALUES(?,?,?,?) ON CONFLICT DO UPDATE SET note=excluded.note",
+            c.execute("INSERT INTO list_items(list_id, entity, note, added_at) VALUES(?,?,?,?) ON CONFLICT(list_id, entity) DO UPDATE SET note=excluded.note",
                       (lid, entity, note[:500], time.time()))
 
     def remove_from_list(self, lid: int, entity: str) -> None:
@@ -503,7 +637,8 @@ class DB:
 
     def daily_new(self, days: int = 14) -> list[tuple[str, int]]:
         with self.conn() as c:
-            rows = c.execute("""SELECT date(created_at, 'unixepoch') AS day, COUNT(*) FROM entities
+            day = "to_char(to_timestamp(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD')" if self.pg else "date(created_at, 'unixepoch')"
+            rows = c.execute(f"""SELECT {day} AS day, COUNT(*) FROM entities
                                 WHERE created_at>=? AND hidden=0 AND demo=0 GROUP BY day ORDER BY day""",
                              (time.time() - days * 86400,)).fetchall()
         return [(r[0], r[1]) for r in rows]
@@ -552,10 +687,11 @@ class DB:
 
     def search_history(self, user_id: int, limit: int = 50) -> list[dict[str, Any]]:
         with self.conn() as c:
-            rows = c.execute("""SELECT s.q, s.dataset, MAX(s.created_at) AS last, COUNT(*) AS times, d.title,
-                                (SELECT COUNT(*) FROM entities e WHERE e.dataset=s.dataset AND e.hidden=0) AS n
-                                FROM searches s LEFT JOIN datasets d ON d.slug=s.dataset WHERE s.user_id=?
-                                GROUP BY lower(s.q) ORDER BY last DESC LIMIT ?""", (user_id, limit)).fetchall()
+            rows = c.execute("""SELECT h.q, h.dataset, h.last, h.times, d.title,
+                                (SELECT COUNT(*) FROM entities e WHERE e.dataset=h.dataset AND e.hidden=0) AS n
+                                FROM (SELECT MAX(s.q) AS q, MAX(s.dataset) AS dataset, MAX(s.created_at) AS last, COUNT(*) AS times
+                                      FROM searches s WHERE s.user_id=? GROUP BY lower(s.q)) h
+                                LEFT JOIN datasets d ON d.slug=h.dataset ORDER BY h.last DESC LIMIT ?""", (user_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
     # monitors: saved searches that are re-checked and report new businesses

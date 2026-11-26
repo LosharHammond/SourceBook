@@ -464,3 +464,39 @@ def test_city_search_world_round_and_monitors(tmp_path, fake_sources):
     assert all(json.loads(db.dataset(s)["definition"])["osm_selectors"] == ['["amenity"="pharmacy"]'] for s in queued)
     cov = discover.world_coverage(db)
     assert cov["countries"] == 5 and cov["countries_total"] > 190
+
+
+def test_inline_jobs_pause_and_crawler_finishes(tmp_path, fake_sources, monkeypatch):
+    """Vercel-style hosting: no background worker; the search page runs its job in a request with a time limit,
+    and the scheduled crawler run picks up anything paused or left behind."""
+    import asyncio
+    import time as _time
+    from sourcebook.jobs import Runner
+    monkeypatch.setenv("SOURCEBOOK_INLINE_JOBS", "1")
+    db = DB(tmp_path / "v.db")
+    app = create_app(db)
+    with TestClient(app) as guest:
+        html = guest.get("/search?q=cocoa+exporters+ivory+coast").text
+        slug = re.search(r'data-slug="([^"]+)"', html).group(1)
+        _time.sleep(0.5)
+        assert db.jobs(dataset=slug)[0]["status"] == "queued"           # nothing runs in the background
+        live = guest.get(f"/search/live/{slug}").json()
+        assert live["run"] == f"/search/run/{slug}"
+        assert guest.post(f"/search/run/{slug}").json() == {"ran": True}
+        assert db.jobs(dataset=slug)[0]["status"] == "done"
+        assert guest.post(f"/search/run/{slug}").json() == {"ran": False}  # nothing left to run
+        assert guest.get(f"/search/live/{slug}").json()["run"] is None
+    # a job past its deadline pauses, keeps its results and queues a follow-up
+    jid = db.add_job(slug, None, "refresh", priority=5)
+    runner = Runner(db, workers=1)
+    asyncio.run(runner.run(db.claim_job(), deadline=_time.time() - 1))
+    assert db.job(jid)["status"] == "done" and "Paused" in db.job(jid)["log"]
+    follow = db.jobs(dataset=slug, status=("queued",))
+    assert follow and follow[0]["kind"] == "continue"
+    # a job a host stopped mid-run is picked up again by the crawler
+    db.claim_job(dataset=slug)                                       # the follow-up starts, then its host stops
+    with db.conn() as c:
+        c.execute("UPDATE jobs SET started_at=? WHERE status='running'", (_time.time() - 3600,))
+    result = asyncio.run(Runner(db, workers=2).run_for(120))
+    assert result["requeued"] == 1 and result["jobs_run"] >= 1
+    assert all(j["status"] != "running" for j in db.jobs(dataset=slug))

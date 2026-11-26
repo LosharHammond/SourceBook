@@ -1,0 +1,57 @@
+# Sourcebook's hourly crawler on GitHub Actions. Move this file to .github/workflows/ in the repository.
+# Each run queues this hour's searches (monitored searches, crawl topics, the next countries of the world round), runs them
+# for up to 50 minutes, and finishes any search the website paused at Vercel's time limit.
+#
+# Repository settings > Secrets and variables > Actions > Secrets:
+#   SOURCEBOOK_DATABASE_URL   the Supabase "Session pooler" connection string (same as DATABASE_URL in Vercel)
+#   BRAVE_API_KEY             optional, same as in Vercel
+#
+# Free and unlimited in a public repository. In a private one, GitHub's 2,000 free minutes a month cover about one 50-minute
+# run a day: change the cron below to "23 2 * * *" there.
+# GitHub turns off scheduled workflows in public repositories after 60 days without a commit; the last step commits a one-line
+# heartbeat file once a day so that never happens.
+name: Sourcebook crawler
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to crawl (minutes)"
+        default: "50"
+permissions:
+  contents: write
+concurrency:
+  group: sourcebook-crawler
+  cancel-in-progress: false
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Crawl
+        env:
+          DATABASE_URL: ${{ secrets.SOURCEBOOK_DATABASE_URL }}
+          DATABASE_SCHEMA: sourcebook
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          SOURCEBOOK_WORKERS: "3"
+        run: |
+          test -n "$DATABASE_URL" || { echo "Add the SOURCEBOOK_DATABASE_URL secret first."; exit 1; }
+          python -m sourcebook crawl --minutes "${{ inputs.minutes || '50' }}"
+      - name: Daily heartbeat (keeps the schedule switched on)
+        if: always()
+        run: |
+          today=$(date -u +%F)
+          if [ "$(cat crawler-heartbeat.txt 2>/dev/null)" != "$today" ]; then
+            echo "$today" > crawler-heartbeat.txt
+            git config user.name "sourcebook-crawler"
+            git config user.email "sourcebook-crawler@users.noreply.github.com"
+            git add crawler-heartbeat.txt
+            git commit -m "Crawler heartbeat $today" && git push || true
+          fi

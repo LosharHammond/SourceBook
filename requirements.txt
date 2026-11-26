@@ -7,3 +7,5 @@ lxml>=5.0
 python-multipart>=0.0.9
 babel>=2.14
 itsdangerous>=2.1
+psycopg[binary]>=3.2
+psycopg-pool>=3.2

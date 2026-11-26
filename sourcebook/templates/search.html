@@ -147,6 +147,7 @@
     try { const r = await fetch(`/search/live/${box.dataset.slug}?lens=${box.dataset.lens}`); if (!r.ok) throw 0; data = await r.json(); }
     catch { return setTimeout(tick, 5000); }
     $("live-count").textContent = data.count;
+    if (data.run && !box.dataset.ran) { box.dataset.ran = "1"; fetch(data.run, { method: "POST" }).catch(() => {}); }
     render();
     if (data.status === "running") { $("live-progress").textContent = data.progress || "Searching…"; setTimeout(tick, 3000); }
     else {
