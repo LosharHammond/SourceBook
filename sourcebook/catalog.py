@@ -120,4 +120,3 @@ def load_curated(db: DB) -> int:
         db.reindex(slug)
     db.set_meta("curated_version", version)
     return added
-

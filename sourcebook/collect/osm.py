@@ -1,4 +1,4 @@
-"""OpenStreetMap via the Overpass API. OSM data is c OpenStreetMap contributors, available under the ODbL -
+"""OpenStreetMap via the Overpass API. OSM data is © OpenStreetMap contributors, available under the ODbL —
 exports that include it must keep the attribution and stay under the same licence (see README)."""
 
 from __future__ import annotations
@@ -81,4 +81,3 @@ async def fetch(country: str, selectors: list[str], name_regex: str | None, plac
             except (httpx.HTTPError, ValueError, RuntimeError) as exc:
                 error = exc
     raise RuntimeError("All map sources are temporarily unavailable") from error
-
