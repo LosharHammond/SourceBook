@@ -61,6 +61,6 @@ def parse(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 async def fetch(country: str, keywords: list[str]) -> list[dict[str, Any]]:
     async with httpx.AsyncClient(headers={"User-Agent": USER_AGENT, "Accept": "application/sparql-results+json"}, timeout=70) as c:
-        r = await c.post(ENDPOINT, data={"query": build_query(country, keywords)})
+        r = await c.get(ENDPOINT, params={"query": build_query(country, keywords), "format":"json"})
         r.raise_for_status()
         return parse(r.json())

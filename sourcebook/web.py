@@ -104,6 +104,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
     env.globals["kenuxa_apps"] = sso.kenuxa_apps
     runner = Runner(db)
     signin_limit, signup_limit, correction_limit = auth.RateLimit(10, 600), auth.RateLimit(5, 3600), auth.RateLimit(20, 3600)
+    live_limit = auth.RateLimit(60, 3600)
     discovery_limit = auth.RateLimit(int(os.environ.get("SOURCEBOOK_SEARCHES_PER_HOUR", "8")), 3600)
     default_country = os.environ.get("SOURCEBOOK_DEFAULT_COUNTRY", "GH").upper()
 
@@ -298,6 +299,36 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
         import time as _t
         await runner.run(job, deadline=_t.time() + run_seconds)
         return JSONResponse({"ran": True})
+
+    async def search_source(request: Request) -> Response:
+        from . import federated
+        from .build import definition_for
+        slug, source = request.path_params["slug"], request.path_params["source"]
+        d = db.dataset(slug)
+        if not d or d["status"] not in ("published", "discovered") or source not in federated.PROVIDERS:
+            return JSONResponse({"status":"not_found"},status_code=404)
+        form = await request.form()
+        if not auth.csrf_ok(request,form):
+            return JSONResponse({"status":"forbidden"},status_code=400)
+        if not live_limit.allow(auth.client_ip(request)):
+            return JSONResponse({"status":"limited","message":"Live search limit reached. Saved results are still available."},status_code=429)
+        # Fresh provider data can be shared across searches; failures are never cached as empty success.
+        marker = "live_source:"+slug+":"+source
+        last = float(db.meta(marker,"0"))
+        if time.time()-last < 300:
+            return JSONResponse({"source":source,"label":federated.PROVIDERS[source],"status":"recent","count":None})
+        definition = definition_for(db,slug)
+        try:
+            import asyncio
+            rows = await asyncio.wait_for(federated.fetch_source(source,definition),timeout=50)
+            count = federated.save_results(db,slug,rows)
+            db.set_meta(marker,str(time.time()))
+            db.set_meta("live_enrich:"+slug,str(time.time()))
+            return JSONResponse({"source":source,"label":federated.PROVIDERS[source],"status":"done","count":count})
+        except Exception as exc:
+            import logging
+            logging.getLogger("sourcebook").warning("Live %s lookup failed (%s)",source,type(exc).__name__)
+            return JSONResponse({"source":source,"label":federated.PROVIDERS[source],"status":"unavailable","message":"This source is temporarily unavailable; other sources and saved results are still shown."})
 
     async def search_export(request: Request) -> Response:
         slug = request.path_params["slug"]
@@ -933,7 +964,8 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
             await runner.stop()
 
     routes = [
-        Route("/", home), Route("/search", search), Route("/search/live/{slug}", search_live), Route("/search/run/{slug}", search_run, methods=["POST"]), Route("/search/export/{slug}.csv", search_export),
+        Route("/", home), Route("/search", search), Route("/search/live/{slug}", search_live), Route("/search/run/{slug}", search_run, methods=["POST"]),
+        Route("/search/source/{slug}/{source}", search_source, methods=["POST"]), Route("/search/export/{slug}.csv", search_export),
         Route("/opportunities", opportunities), Route("/opportunities.csv", opportunities_csv), Route("/api/datasets", api_datasets),
         Route("/signin", signin, methods=["GET", "POST"]), Route("/signup", signup, methods=["GET", "POST"]),
         Route("/signout", signout, methods=["POST"]),

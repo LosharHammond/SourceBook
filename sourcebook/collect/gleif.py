@@ -34,8 +34,7 @@ async def fetch(country: str, keywords: list[str], max_pages: int = 3) -> list[d
             for page in range(1, max_pages + 1):
                 r = await c.get(ENDPOINT, params={"filter[fulltext]": kw, "filter[entity.legalAddress.country]": country.upper(),
                                                   "filter[entity.status]": "ACTIVE", "page[size]": 100, "page[number]": page})
-                if r.status_code != 200:
-                    break
+                r.raise_for_status()
                 data = r.json()
                 rows += parse(data)
                 if page >= (data.get("meta", {}).get("pagination", {}).get("lastPage") or 1):

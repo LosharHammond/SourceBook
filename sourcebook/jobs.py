@@ -58,7 +58,11 @@ class Runner:
         out_of_time = lambda: deadline is not None and time.time() > deadline  # noqa: E731
         stopped = lambda: out_of_time() or bool((self.db.job(jid) or {}).get("cancel"))  # noqa: E731
         try:
-            stats = await build({**d, "_resume": job.get("kind") == "continue"}, self.db, log=log, stop=stopped)
+            cached = None
+            if job.get("kind") in ("discover", "continue") and time.time()-float(self.db.meta("live_enrich:"+slug,"0")) < 600:
+                from .federated import existing_candidates
+                cached = existing_candidates(self.db,slug)
+            stats = await build({**d, "_resume": job.get("kind") == "continue", **({"_candidates":cached} if cached else {})}, self.db, log=log, stop=stopped)
         except Cancelled:
             if out_of_time() and not (self.db.job(jid) or {}).get("cancel"):
                 log("Paused here to stay within the time limit. The scheduled crawler checks the rest within the hour.")

@@ -175,7 +175,7 @@ async def build(definition: Path | dict[str, Any], db: DB, *, websites: bool = T
                       {k: v for k, v in d.items() if not k.startswith("_")})
     db.clear_dataset(slug, demo_only=True)       # a real build replaces any example data
     before = len(db.entities(slug))
-    candidates = merge(await collect(d, log))
+    candidates = merge(d["_candidates"] if "_candidates" in d else await collect(d, log))
     stats = {"found": len(candidates), "websites_read": 0, "kept": 0, "skipped": 0, "new": 0}
     if len(candidates) > MAX_CANDIDATES:
         log(f"Found {len(candidates)} candidates; checking the first {MAX_CANDIDATES}. Narrow the keywords to cover the rest.")
@@ -213,7 +213,7 @@ async def build(definition: Path | dict[str, Any], db: DB, *, websites: bool = T
         if c.get("needs_evidence") and not evidence:
             stats["skipped"] += 1
             return
-        if not (evidence or named or c.get("products") or c.get("curator") or
+        if not (evidence or named or c.get("products") or c.get("curator") or c.get("_existing") or
                 (c.get("source_type") == "osm" and any(sel.replace('["', '').replace('"]', '').replace('"="', '=') in c.get("kind", "") for sel in d.get("osm_selectors", [])))):
             stats["skipped"] += 1
             return
