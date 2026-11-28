@@ -147,12 +147,17 @@
     try { const r = await fetch(`/search/live/${box.dataset.slug}?lens=${box.dataset.lens}`); if (!r.ok) throw 0; data = await r.json(); }
     catch { return setTimeout(tick, 5000); }
     $("live-count").textContent = data.count;
-    if (data.run && !box.dataset.ran) { box.dataset.ran = "1"; fetch(data.run, { method: "POST" }).catch(() => {}); }
+    if (data.run && !box.dataset.ran) {
+      box.dataset.ran = "1";
+      fetch(data.run, { method: "POST" }).then(r => {
+        if (!r.ok) throw new Error("Collection paused. The hourly crawler will retry this search.");
+      }).catch(e => { $("live-progress").textContent = e.message; box.dataset.ran = ""; });
+    }
     render();
     if (data.status === "running") { $("live-progress").textContent = data.progress || "Searching…"; setTimeout(tick, 3000); }
     else {
       $("live-bar").hidden = true;
-      $("live-progress").textContent = data.count ? `Checked ${data.checked}. Ranked for: ${data.lens_label}.` : "No matching businesses found in the open sources. Try a different wording, a bigger town, or another country.";
+      $("live-progress").textContent = data.count ? `Checked ${data.checked}. Ranked for: ${data.lens_label}.` : (data.progress && /could not|timed out|error|failed/i.test(data.progress) ? data.progress + " Please retry later; this is not proof that no businesses exist." : "No matching businesses collected yet. Try a related category or another place; the crawler will revisit this search.");
     }
   };
   tick();

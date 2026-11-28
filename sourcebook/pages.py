@@ -18,6 +18,8 @@ GENERIC = {"companies", "company", "firms", "firm", "businesses", "business", "s
            "installers", "contractors", "the", "and", "for", "with", "local", "small", "large", "best", "top"}
 # common business words → OpenStreetMap tags, used when the person didn't give tags themselves
 TAG_HINTS = {
+    "web develop": ["office=it", "craft=web_design"], "web design": ["office=it", "craft=web_design"],
+    "software": ["office=it"], "digital market": ["office=advertising", "office=it"],
     "pharmac": ["amenity=pharmacy"], "hotel": ["tourism=hotel"], "guest house": ["tourism=guest_house"], "restaurant": ["amenity=restaurant"],
     "supermarket": ["shop=supermarket"], "hardware": ["shop=hardware"], "hospital": ["amenity=hospital"], "clinic": ["amenity=clinic"],
     "bank": ["amenity=bank"], "fuel": ["amenity=fuel"], "filling station": ["amenity=fuel"], "bakery": ["shop=bakery"], "bakeries": ["shop=bakery"],

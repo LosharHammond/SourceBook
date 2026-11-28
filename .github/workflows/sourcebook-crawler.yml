@@ -12,6 +12,9 @@
 # heartbeat file once a day so that never happens.
 name: Sourcebook crawler
 on:
+  push:
+    branches: [main]
+    paths: ["sourcebook/catalog.py", ".github/workflows/sourcebook-crawler.yml"]
   schedule:
     - cron: "23 * * * *"
   workflow_dispatch:
@@ -44,7 +47,10 @@ jobs:
           CRAWL_MINUTES: ${{ inputs.minutes || '50' }}
         run: |
           test -n "$DATABASE_URL" || { echo "Add the SOURCEBOOK_DATABASE_URL secret first."; exit 1; }
-          python -m sourcebook crawl --minutes "$CRAWL_MINUTES"
+          # A real CC0 seed catalogue, then at least the daily growth target where sources permit.
+          python -m sourcebook catalog --target 10000 --bootstrap --minutes 25
+          python -m sourcebook catalog --target 1000 --daily --minutes 5
+          python -m sourcebook crawl --minutes 20
       - name: Daily heartbeat (keeps the schedule switched on)
         if: always()
         run: |

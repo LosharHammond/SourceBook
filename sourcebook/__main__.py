@@ -32,6 +32,11 @@ def main() -> None:
     cr = sub.add_parser("crawl", help="one scheduled crawler run (for GitHub Actions or cron): queue this hour's work and run it")
     cr.add_argument("--minutes", type=float, default=float(os.environ.get("SOURCEBOOK_CRAWL_MINUTES", "50")))
     cr.add_argument("--workers", type=int, default=int(os.environ.get("SOURCEBOOK_WORKERS", "3")))
+    cat = sub.add_parser("catalog", help="import real CC0 registered businesses across countries")
+    cat.add_argument("--target", type=int, default=1000)
+    cat.add_argument("--minutes", type=float, default=30)
+    cat.add_argument("--daily", action="store_true", help="subtract businesses already added today from target")
+    cat.add_argument("--bootstrap", action="store_true", help="only add the deficit below the initial target")
     ma = sub.add_parser("make-admin", help="give an existing account admin rights")
     ma.add_argument("email")
     a = p.parse_args()
@@ -52,10 +57,15 @@ def main() -> None:
         print("Sample data loaded. Run:  python -m sourcebook serve")
     elif a.cmd == "crawl":
         from .jobs import Runner
-        result = asyncio.run(Runner(db, workers=a.workers).run_for(a.minutes * 60))
+        result = asyncio.run(Runner(db, workers=a.workers).run_for(a.minutes * 60, refill=True))
         print(f"Crawler run: {result['jobs_run']} jobs run, {result['queued']} queued this hour, "
               f"{result['requeued']} picked up again, {result['still_queued']} still waiting. "
               f"{db.entity_count()} businesses in total.")
+    elif a.cmd == "catalog":
+        from .catalog import grow
+        from .discover import today_start
+        target = a.target - (db.entity_count() if a.bootstrap else db.new_entities_since(today_start()) if a.daily else 0)
+        print(asyncio.run(grow(db, max(0,target), seconds=a.minutes*60)))
     elif a.cmd == "make-admin":
         user = db.user(email=a.email)
         if not user:

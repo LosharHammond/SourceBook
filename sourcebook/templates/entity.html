@@ -18,6 +18,28 @@
 {% if e.demo %}<div class="wrap"><div class="notice warn"><strong>Sample profile.</strong> This business is fictional and exists only to show how a profile looks.</div></div>{% endif %}
 <section class="wrap profile">
   <div class="main-col">
+    {% if not e.demo %}
+    <article class="card" id="community">
+      <h2>Community reviews and votes</h2>
+      <p>{% if feedback.rating %}<strong>{{ feedback.rating }} / 5</strong> from {{ feedback.count }} reviews.{% else %}No reviews yet.{% endif %} Recommendation score: <strong>{{ feedback.score }}</strong> ({{ feedback.votes }} votes).</p>
+      <p class="fine">Sourcebook members' opinions, separate from sourced business facts. One review and one vote per account. Share your own experience and avoid private information. Use the correction form to report abuse.</p>
+      {% if user %}
+      <form method="post" action="{{ path }}/community/vote" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn" name="value" value="1">Recommend{% if feedback.my_vote == 1 %} (your vote){% endif %}</button>
+        <button class="btn" name="value" value="-1">Do not recommend{% if feedback.my_vote == -1 %} (your vote){% endif %}</button>
+        {% if feedback.my_vote %}<button class="btn" name="value" value="0">Remove my vote</button>{% endif %}
+      </form>
+      <form method="post" action="{{ path }}/community/review" class="form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="rating">Your rating</label><select id="rating" name="rating" required>{% for n in range(5,0,-1) %}<option value="{{ n }}">{{ n }} stars</option>{% endfor %}</select>
+        <label for="review-body">Your experience</label><textarea id="review-body" name="body" minlength="10" maxlength="2000" rows="3" required></textarea>
+        <button class="btn primary">Save or update my review</button>
+      </form>
+      {% else %}<p><a href="/signin?next={{ path|urlencode }}">Sign in to review or vote</a>.</p>{% endif %}
+      {% for r in feedback.reviews %}<div class="review"><h3>{{ r.author or "Sourcebook member" }} — {{ r.rating }} / 5</h3><p>{{ r.body }}</p><small>{{ fmt_date(r.updated_at) }}</small></div>{% endfor %}
+    </article>
+    {% endif %}
     <article class="card">
       <h2>About</h2>
       <p class="desc">{{ e.description or "No description yet." }}</p>

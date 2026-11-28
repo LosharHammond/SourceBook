@@ -227,6 +227,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
         live = None
         if q:
             p = await discover.resolve(db, q, chosen)
+            hits = db.search(p["what"], country=p["country"] if p["named_country"] or "in" in request.query_params else None)
             if p["slug"] and not discover.needs_run(db, p["slug"]):
                 db.log_search(q, p["what"], p["country"], p["slug"], False, user["id"] if user else None)
                 live = {"slug": p["slug"], "what": p["what"], "country": p["country"], "place": p["place_info"], "started": False,
@@ -262,7 +263,8 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
         if last:
             lines = [ln for ln in last["log"].splitlines() if ln.strip() and not ln.startswith(("Traceback", "  File", "    "))]
             found = [ln for ln in lines if ln.endswith(" found") or ln.startswith(("Checked", "Done:", "Kept businesses")) or "after merging" in ln]
-            progress = found[-1] if found else ("Waiting for a free worker…" if last["status"] == "queued" else "Starting…")
+            problems = [ln for ln in lines if "could not be reached" in ln or "timed out" in ln or "stopped with an error" in ln]
+            progress = (problems[-1] if problems and last["status"] in ("done", "failed") else None) or (found[-1] if found else ("Waiting for a free worker…" if last["status"] == "queued" else "Starting…"))
         rows = ranked(slug, lens)
         tabs = [{"key": k, "label": lbl, "count": sum(1 for r in rows if test(r))} for k, lbl, test in leadmod.TABS]
         run = f"/search/run/{slug}" if inline and active and active[0]["status"] == "queued" else None
@@ -345,7 +347,27 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
             by_field.setdefault(fct["field"], []).append(fct)
         lists = db.lists(user["id"]) if user else []
         saved = db.saved_in(user["id"], e["id"]) if user else []
-        return render("entity.html", request, d=d, e=e, by_field=by_field, sent=request.query_params.get("sent"), lists=lists, saved=saved)
+        return render("entity.html", request, d=d, e=e, by_field=by_field, sent=request.query_params.get("sent"), lists=lists, saved=saved, feedback=db.feedback(e["id"], user["id"] if user else None))
+
+    async def community(request: Request) -> Response:
+        slug, eslug = request.path_params["slug"], request.path_params["entity"]
+        d, e = db.dataset(slug), db.entity(slug, eslug)
+        if not can_view(d, auth.current_user(request)) or not e or e["demo"]:
+            return not_found(request)
+        user = auth.current_user(request)
+        form = await request.form()
+        if not correction_limit.allow(str(user["id"])):
+            return message(request, 429, "Please wait", "Try again later.")
+        try:
+            if request.path_params["action"] == "review":
+                db.review_business(e["id"], user["id"], int(form.get("rating", "0")), str(form.get("body", "")))
+            elif request.path_params["action"] == "vote":
+                db.vote_business(e["id"], user["id"], int(form.get("value", "0")))
+            else:
+                return not_found(request)
+        except ValueError as exc:
+            return message(request, 400, "Check your feedback", str(exc))
+        return RedirectResponse(f"/d/{slug}/{eslug}#community", status_code=303)
 
     async def correct(request: Request) -> Response:
         slug, eslug = request.path_params["slug"], request.path_params["entity"]
@@ -936,6 +958,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
         Route("/app/monitors/{mid:int}/{action}", login_required(app_monitor_action), methods=["POST"]),
         Route("/d/{slug}", dataset), Route("/d/{slug}/{entity}", entity),
         Route("/d/{slug}/{entity}/correct", correct, methods=["POST"]),
+        Route("/d/{slug}/{entity}/community/{action}", login_required(community), methods=["POST"]),
         Route("/robots.txt", robots), Route("/sitemap.xml", sitemap),
         Mount("/static", StaticFiles(directory=HERE / "static"), name="static"),
     ]

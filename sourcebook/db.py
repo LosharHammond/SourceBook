@@ -84,6 +84,20 @@ CREATE TABLE IF NOT EXISTS identities (
   email TEXT, created_at REAL, PRIMARY KEY(provider, subject)
 );
 CREATE TABLE IF NOT EXISTS world_runs (category TEXT NOT NULL, country TEXT NOT NULL, dataset TEXT, last_run REAL, PRIMARY KEY(category, country));
+CREATE TABLE IF NOT EXISTS business_reviews (
+  entity TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5), body TEXT NOT NULL,
+  hidden INTEGER DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+  PRIMARY KEY(entity, user_id)
+);
+CREATE TABLE IF NOT EXISTS business_votes (
+  entity TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  value INTEGER NOT NULL CHECK(value IN (-1,1)), updated_at REAL NOT NULL,
+  PRIMARY KEY(entity, user_id)
+);
+
 """
 
 # columns added after the first release: (table, column, declaration)
@@ -114,7 +128,7 @@ def default_path() -> Path:
 STOP = {"in", "the", "of", "and", "for", "a", "an", "to", "near", "suppliers", "supplier", "companies", "company", "list", "who"}
 
 
-SCHEMA_VERSION = "3"   # raise when SCHEMA or MIGRATIONS change, so PostgreSQL re-applies them once
+SCHEMA_VERSION = "4"   # raise when SCHEMA or MIGRATIONS change, so PostgreSQL re-applies them once
 
 
 def pg_schema_sql() -> str:
@@ -385,6 +399,9 @@ class DB:
     def reindex(self, dataset: str) -> None:
         with self.conn() as c:
             c.execute("DELETE FROM search WHERE dataset=?", (dataset,))
+            if self.pg:
+                c.execute("INSERT INTO search(entity,dataset,doc) SELECT id,dataset, setweight(to_tsvector('simple',name),'A') || setweight(to_tsvector('simple',COALESCE(city,'') || ' ' || products),'B') || to_tsvector('simple',COALESCE(description,'')) FROM entities WHERE dataset=? AND hidden=0 ON CONFLICT(entity) DO UPDATE SET doc=excluded.doc", (dataset,))
+                return
             for r in c.execute("SELECT id, name, city, products, description FROM entities WHERE dataset=? AND hidden=0", (dataset,)).fetchall():
                 products = " ".join(json.loads(r["products"] or "[]"))
                 if self.pg:
@@ -396,7 +413,7 @@ class DB:
                     c.execute("INSERT INTO search(entity, dataset, name, city, products, description) VALUES(?,?,?,?,?,?)",
                               (r["id"], dataset, r["name"], r["city"], products, r["description"]))
 
-    def search(self, query: str, limit: int = 50, published_only: bool = True) -> list[dict[str, Any]]:
+    def search(self, query: str, limit: int = 50, published_only: bool = True, country: str | None = None) -> list[dict[str, Any]]:
         terms = [t for t in re.findall(r"[\w']+", query.lower()) if len(t) > 1 and t not in STOP]
         if not terms:
             return []
@@ -406,15 +423,15 @@ class DB:
                 rows = c.execute("""SELECT s.entity, s.dataset, e.slug, e.name, e.city, e.products, e.description, d.status AS dataset_status,
                                     -ts_rank(s.doc, to_tsquery('simple', ?::text)) AS rank
                                     FROM search s JOIN entities e ON e.id = s.entity JOIN datasets d ON d.slug = s.dataset
-                                    WHERE s.doc @@ to_tsquery('simple', ?::text) AND (d.status IN ('published', 'discovered') OR ?=0)
-                                    ORDER BY rank LIMIT ?""", (tsq, tsq, int(published_only), limit)).fetchall()
+                                    WHERE s.doc @@ to_tsquery('simple', ?::text) AND (d.status IN ('published', 'discovered') OR ?=0) AND (?='' OR d.country=?)
+                                    ORDER BY rank LIMIT ?""", (tsq, tsq, int(published_only), country or "", country or "", limit)).fetchall()
             return [{**dict(r), "products": json.loads(r["products"] or "[]")} for r in rows]
         fts = " OR ".join(f'"{t}"*' for t in terms)
         with self.conn() as c:
             rows = c.execute("""SELECT s.entity, s.dataset, e.slug, e.name, e.city, e.products, e.description, d.status AS dataset_status, bm25(search) AS rank
                                 FROM search s JOIN entities e ON e.id = s.entity JOIN datasets d ON d.slug = s.dataset
-                                WHERE search MATCH ? AND (d.status IN ('published', 'discovered') OR ?=0) ORDER BY rank LIMIT ?""",
-                             (fts, int(published_only), limit)).fetchall()
+                                WHERE search MATCH ? AND (d.status IN ('published', 'discovered') OR ?=0) AND (?='' OR d.country=?) ORDER BY rank LIMIT ?""",
+                             (fts, int(published_only), country or "", country or "", limit)).fetchall()
         return [{**dict(r), "products": json.loads(r["products"] or "[]")} for r in rows]
 
     # ------------------------------------------------------------------ corrections
@@ -729,3 +746,29 @@ class DB:
                                 WHERE created_at>? AND what IS NOT NULL GROUP BY what, country ORDER BY n DESC, last DESC LIMIT ?""",
                              (time.time() - days * 86400, limit)).fetchall()
         return [dict(r) for r in rows]
+
+    # Community feedback is separate from facts collected from public sources.
+    def feedback(self, entity: str, user_id: int | None = None) -> dict:
+        with self.conn() as c:
+            reviews = [dict(r) for r in c.execute("SELECT r.*, u.name AS author FROM business_reviews r JOIN users u ON u.id=r.user_id WHERE r.entity=? AND r.hidden=0 ORDER BY r.updated_at DESC LIMIT 100", (entity,))]
+            totals = c.execute("SELECT COUNT(*), AVG(rating) FROM business_reviews WHERE entity=? AND hidden=0", (entity,)).fetchone()
+            votes = c.execute("SELECT COALESCE(SUM(value),0), COUNT(*) FROM business_votes WHERE entity=?", (entity,)).fetchone()
+            mine = c.execute("SELECT value FROM business_votes WHERE entity=? AND user_id=?", (entity, user_id or 0)).fetchone()
+        return {"reviews": reviews, "count": totals[0], "rating": round(float(totals[1]), 1) if totals[1] is not None else None,
+                "score": votes[0], "votes": votes[1], "my_vote": mine[0] if mine else 0}
+
+    def review_business(self, entity: str, user_id: int, rating: int, body: str) -> None:
+        if rating not in range(1, 6) or not 10 <= len(body.strip()) <= 2000:
+            raise ValueError("Choose 1 to 5 stars and write a review of 10 to 2,000 characters.")
+        now = time.time()
+        with self.conn() as c:
+            c.execute("INSERT INTO business_reviews(entity,user_id,rating,body,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(entity,user_id) DO UPDATE SET rating=excluded.rating, body=excluded.body, updated_at=excluded.updated_at", (entity,user_id,rating,body.strip(),now,now))
+
+    def vote_business(self, entity: str, user_id: int, value: int) -> None:
+        if value not in (-1, 0, 1):
+            raise ValueError("Choose recommend, do not recommend, or remove vote.")
+        with self.conn() as c:
+            if value == 0:
+                c.execute("DELETE FROM business_votes WHERE entity=? AND user_id=?", (entity,user_id))
+            else:
+                c.execute("INSERT INTO business_votes(entity,user_id,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(entity,user_id) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", (entity,user_id,value,time.time()))

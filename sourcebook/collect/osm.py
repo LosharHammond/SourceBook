@@ -4,12 +4,14 @@ exports that include it must keep the attribution and stay under the same licenc
 from __future__ import annotations
 
 from typing import Any
+import os
 
 import httpx
 
 from . import USER_AGENT
 
 OVERPASS = "https://overpass-api.de/api/interpreter"
+MIRRORS = (OVERPASS, "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter")
 
 
 def build_query(country: str, selectors: list[str], name_regex: str | None, limit: int = 400, place: dict | None = None) -> str:
@@ -65,7 +67,17 @@ def parse(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def fetch(country: str, selectors: list[str], name_regex: str | None, place: dict | None = None) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(headers={"User-Agent": USER_AGENT}, timeout=120) as c:
-        r = await c.post(OVERPASS, data={"data": build_query(country, selectors, name_regex, place=place)})
-        r.raise_for_status()
-        return parse(r.json())
+    query = build_query(country, selectors, name_regex, limit=int(os.environ.get("SOURCEBOOK_OSM_LIMIT", "400")), place=place)
+    error = None
+    async with httpx.AsyncClient(headers={"User-Agent": USER_AGENT}, timeout=50, follow_redirects=True) as c:
+        for endpoint in MIRRORS:
+            try:
+                r = await c.get(endpoint, params={"data": query})
+                r.raise_for_status()
+                data = r.json()
+                if data.get("remark") and not data.get("elements"):
+                    raise RuntimeError("Map query did not complete")
+                return parse(data)
+            except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+                error = exc
+    raise RuntimeError("All map sources are temporarily unavailable") from error

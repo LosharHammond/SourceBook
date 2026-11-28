@@ -102,7 +102,7 @@ class Runner:
             if not d["demo"] and (d["built_at"] or 0) < cutoff and d["slug"] not in busy:
                 self.db.add_job(d["slug"], None, "refresh")
 
-    async def run_for(self, seconds: float) -> dict:
+    async def run_for(self, seconds: float, *, refill: bool = False) -> dict:
         """One scheduled crawler run (GitHub Actions, cron): queue this hour's crawl, then work through the queue until it is
         empty or the time is up. Jobs left running by a host that stopped them are picked up again."""
         from .discover import crawl_tick
@@ -121,7 +121,13 @@ class Runner:
             while time.time() < end - 30:
                 job = self.db.claim_job()
                 if not job:
-                    return
+                    more = crawl_tick(self.db) if refill else []
+                    if not more:
+                        return
+                    queued.extend(more)
+                    job = self.db.claim_job()
+                    if not job:
+                        return
                 await self.run(job, deadline=end - 30)
                 done += 1
 

@@ -86,6 +86,16 @@ async def collect(d: dict[str, Any], log: Callable[[str], None]) -> list[dict[st
     """Ask every source; return candidates in one shape."""
     from .collect import gleif, websearch, wikidata
     wanted = d.get("sources") or SOURCES
+    # Independent providers must not consume the request budget one after another.
+    if len(wanted) > 1:
+        import asyncio
+        async def source(name):
+            try:
+                return await asyncio.wait_for(collect({**d, "sources": [name]}, log), timeout=160)
+            except asyncio.TimeoutError:
+                log(f"{name} timed out; other sources are still used.")
+                return []
+        return [row for group in await asyncio.gather(*(source(name) for name in wanted)) for row in group]
     keywords = d.get("keywords") or d.get("relevance_keywords") or []
     out: list[dict[str, Any]] = []
 
@@ -95,7 +105,7 @@ async def collect(d: dict[str, Any], log: Callable[[str], None]) -> list[dict[st
             log(f"{label}: {len(rows)} found")
             return rows
         except Exception as exc:  # noqa: BLE001 - one source failing shouldn't stop the others
-            log(f"{label} couldn't be reached ({exc.__class__.__name__}); carrying on with the other sources.")
+            log(f"{label} could not be reached ({exc.__class__.__name__}); carrying on with the other sources.")
             return []
 
     if "osm" in wanted and (d.get("osm_selectors") or d.get("osm_name_regex")):
@@ -203,7 +213,8 @@ async def build(definition: Path | dict[str, Any], db: DB, *, websites: bool = T
         if c.get("needs_evidence") and not evidence:
             stats["skipped"] += 1
             return
-        if not (evidence or named or c.get("products") or c.get("curator")):
+        if not (evidence or named or c.get("products") or c.get("curator") or
+                (c.get("source_type") == "osm" and any(sel.replace('["', '').replace('"]', '').replace('"="', '=') in c.get("kind", "") for sel in d.get("osm_selectors", [])))):
             stats["skipped"] += 1
             return
         name = c["name"]
