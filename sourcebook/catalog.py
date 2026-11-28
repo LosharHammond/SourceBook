@@ -84,5 +84,40 @@ async def grow(db: DB, target: int, seconds: float = 1800, log=print) -> dict:
                 errors += 1
                 log(f"Catalogue {code}: source unavailable ({type(exc).__name__}); retry next run", flush=True)
             await asyncio.sleep(.25)
+    if added == 0 and errors and not touched:
+        raise RuntimeError("The catalogue sources could not be reached; no additions were made.")
     db.set_meta("catalog_last_run", json.dumps({"at":time.time(),"new":added,"fetched":fetched,"countries":len(touched),"source_errors":errors}))
     return {"new":added,"fetched":fetched,"countries":len(touched),"source_errors":errors}
+
+
+def load_curated(db: DB) -> int:
+    """Small, manually verified service listings. Sourced facts, never imported third-party reviews."""
+    from pathlib import Path
+    from .discover import page_for
+    path = Path(__file__).resolve().parent.parent / "datasets" / "verified-businesses.json"
+    if not path.exists():
+        return 0
+    version = "2026-11-28-v1"
+    if db.meta("curated_version", "") == version:
+        return 0
+    added = 0
+    touched = set()
+    for row in json.loads(path.read_text()):
+        slug = page_for(db, row["topic"], row["country"])
+        eid = f"{slug}:{slugify(row['name'])}"
+        old = db.entity(slug, slugify(row["name"]))
+        db.upsert_entity(slug,row["name"],city=row.get("city",""),website=row["website"])
+        src = row["source_url"]
+        for field,value in (("name",row["name"]),("website",row["website"]),("city",row.get("city",""))):
+            if value:
+                db.add_fact(eid,field,value,src,"curator")
+        for service in row["services"]:
+            db.add_fact(eid,"product",service,src,"curator")
+        db.set_description(eid, f"{row['name']} publishes {', '.join(row['services']).lower()} services in {country_name(row['country'])} on its website. Details manually checked on {row['verified_at']}.", [src], row["services"])
+        touched.add(slug)
+        added += int(old is None)
+    for slug in touched:
+        db.reindex(slug)
+    db.set_meta("curated_version", version)
+    return added
+

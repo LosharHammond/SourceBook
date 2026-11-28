@@ -62,7 +62,8 @@ def main() -> None:
               f"{result['requeued']} picked up again, {result['still_queued']} still waiting. "
               f"{db.entity_count()} businesses in total.")
     elif a.cmd == "catalog":
-        from .catalog import grow
+        from .catalog import grow, load_curated
+        load_curated(db)
         from .discover import today_start
         target = a.target - (db.entity_count() if a.bootstrap else db.new_entities_since(today_start()) if a.daily else 0)
         print(asyncio.run(grow(db, max(0,target), seconds=a.minutes*60)))
@@ -80,3 +81,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

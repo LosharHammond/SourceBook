@@ -1,7 +1,7 @@
 """Sourcebook web application.
 
-Public site  /, /search, /d/<page>, /d/<page>/<business>, CSV/JSON export, corrections — server-rendered so it can be indexed.
-Workspace    /app/... — signed-in members build data pages, keep shortlists and review corrections; admins approve pages.
+Public site  /, /search, /d/<page>, /d/<page>/<business>, CSV/JSON export, corrections - server-rendered so it can be indexed.
+Workspace    /app/... - signed-in members build data pages, keep shortlists and review corrections; admins approve pages.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from . import discover, gaps as gapmod, leads as leadmod, sso
 from .pages import country_name, countries, definition_from_form, form_from_definition, merge_definition
 
 HERE = Path(__file__).parent
-LICENCE = ("Includes data from OpenStreetMap © OpenStreetMap contributors, available under the Open Database Licence (ODbL) — "
+LICENCE = ("Includes data from OpenStreetMap c OpenStreetMap contributors, available under the Open Database Licence (ODbL) - "
            "https://www.openstreetmap.org/copyright. Other facts come from the businesses' own public websites, linked per fact. "
            "If you publish a database built from this export, keep this notice and share it under the ODbL.")
 CONTACT_LABEL = {"phone": "Phone", "email": "Email", "whatsapp": "WhatsApp", "telegram": "Telegram", "website": "Website",
@@ -85,7 +85,11 @@ def site_url(request: Request) -> str:
 
 
 def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
+    seed_catalog = db is None
     db = db or DB()
+    from .catalog import load_curated
+    if seed_catalog:
+        load_curated(db)
     # Hosts with no always-on process (Vercel): a search runs its own job inside a request (/search/run), within a time limit,
     # and the scheduled crawler (python -m sourcebook crawl, e.g. GitHub Actions) does everything else.
     inline = os.environ.get("SOURCEBOOK_INLINE_JOBS") == "1"
@@ -189,7 +193,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
             w.writerow(["; ".join(r.get(c) or []) if isinstance(r.get(c), list) else r.get(c, "") for c in cols])
         w.writerow([])
         w.writerow([LICENCE])
-        return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+        return Response("?" + buf.getvalue(), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     def queue_build(slug: str, user: dict[str, Any], kind: str = "build") -> str | None:
@@ -264,7 +268,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
             lines = [ln for ln in last["log"].splitlines() if ln.strip() and not ln.startswith(("Traceback", "  File", "    "))]
             found = [ln for ln in lines if ln.endswith(" found") or ln.startswith(("Checked", "Done:", "Kept businesses")) or "after merging" in ln]
             problems = [ln for ln in lines if "could not be reached" in ln or "timed out" in ln or "stopped with an error" in ln]
-            progress = (problems[-1] if problems and last["status"] in ("done", "failed") else None) or (found[-1] if found else ("Waiting for a free worker…" if last["status"] == "queued" else "Starting…"))
+            progress = (problems[-1] if problems and last["status"] in ("done", "failed") else None) or (found[-1] if found else ("Waiting for a free worker." if last["status"] == "queued" else "Starting."))
         rows = ranked(slug, lens)
         tabs = [{"key": k, "label": lbl, "count": sum(1 for r in rows if test(r))} for k, lbl, test in leadmod.TABS]
         run = f"/search/run/{slug}" if inline and active and active[0]["status"] == "queued" else None
@@ -406,7 +410,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
         return csv_response(records, f"{slug}-{stamp}.csv")
 
     async def opportunities(request: Request) -> Response:
-        """Find businesses that lack what you build — and the contacts they publish so you can offer it."""
+        """Find businesses that lack what you build - and the contacts they publish so you can offer it."""
         user = auth.current_user(request)
         lacks = request.query_params.get("lacks", "")
         country = request.query_params.get("in", "").upper()
@@ -645,7 +649,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
             for j in db.jobs(dataset=d["slug"], status=("queued", "running")):
                 db.cancel_job(j["id"])
             db.delete_dataset(d["slug"])
-            return back("/app/pages", f"Deleted “{d['title']}”.")
+            return back("/app/pages", f"Deleted "{d['title']}".")
         if action in ("publish", "reject", "unpublish") and user["role"] == "admin":
             note = str(form.get("note", ""))[:500]
             db.set_status(d["slug"], {"publish": "published", "reject": "rejected", "unpublish": "review"}[action], note)
@@ -865,7 +869,7 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
             except ValueError:
                 every = 14.0
             tid = db.add_target(what, country, str(form.get("keywords", "")), str(form.get("products", "")), every, me["id"])
-            return back(url, f"Added “{definition['title']}”." if tid else "That topic is already on the list.", "ok" if tid else "warn")
+            return back(url, f"Added "{definition['title']}"." if tid else "That topic is already on the list.", "ok" if tid else "warn")
         if action == "starter":
             n = discover.load_starter_targets(db, me["id"])
             return back(url, f"Added {n} starter topics." if n else "The starter topics are already on the list.")
@@ -969,3 +973,4 @@ def create_app(db: DB | None = None, run_jobs: bool | None = None) -> Starlette:
     app.state.db = db
     app.state.runner = runner
     return app
+

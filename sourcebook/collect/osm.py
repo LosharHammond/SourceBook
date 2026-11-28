@@ -1,4 +1,4 @@
-"""OpenStreetMap via the Overpass API. OSM data is © OpenStreetMap contributors, available under the ODbL —
+"""OpenStreetMap via the Overpass API. OSM data is c OpenStreetMap contributors, available under the ODbL -
 exports that include it must keep the attribution and stay under the same licence (see README)."""
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ import httpx
 
 from . import USER_AGENT
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
-MIRRORS = (OVERPASS, "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter")
+OVERPASS = os.environ.get("SOURCEBOOK_OVERPASS_URL", "https://overpass.private.coffee/api/interpreter")
+MIRRORS = (OVERPASS,)  # Private.coffee explicitly permits commercial/global use; do not multiply requests across its aliases.
 
 
 def build_query(country: str, selectors: list[str], name_regex: str | None, limit: int = 400, place: dict | None = None) -> str:
@@ -81,3 +81,4 @@ async def fetch(country: str, selectors: list[str], name_regex: str | None, plac
             except (httpx.HTTPError, ValueError, RuntimeError) as exc:
                 error = exc
     raise RuntimeError("All map sources are temporarily unavailable") from error
+
